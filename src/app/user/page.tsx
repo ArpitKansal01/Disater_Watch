@@ -18,9 +18,7 @@ type Status =
 
 const UserDashboard: React.FC = () => {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [location, setLocation] = useState<string>("");
   const [messages, setMessages] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [isLaptop, setIsLaptop] = useState(false);
@@ -28,16 +26,6 @@ const UserDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [userNote, setUserNote] = useState<string>("");
-
-  const handleNoteSubmit = () => {
-    if (!userNote.trim()) {
-      toast.error("✏️ No Note Added.");
-      setStatus("error");
-      return;
-    }
-    setMessages((prev) => [...prev, `🗒️ User Note: ${userNote}`]);
-    setUserNote("");
-  };
 
   // ✅ Detect laptop/desktop
   useEffect(() => {
@@ -82,8 +70,6 @@ const UserDashboard: React.FC = () => {
     const selectedFile = e.target.files[0];
     setMessages([]);
     setStatus("uploading");
-
-    setFile(selectedFile);
     setImageUrl(URL.createObjectURL(selectedFile));
 
     try {
@@ -99,7 +85,7 @@ const UserDashboard: React.FC = () => {
             const loc = `Latitude: ${latitude.toFixed(
               4
             )}, Longitude: ${longitude.toFixed(4)}`;
-            setLocation(loc);
+
             resolve(loc);
           },
           (error) => {
@@ -149,69 +135,22 @@ const UserDashboard: React.FC = () => {
       }
 
       setStatus("success");
-    } catch (err: any) {
-      console.error("Prediction error:", err);
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        console.error("Prediction error:", err.response?.data);
+        toast.error(
+          err.response?.data?.message || "❌ Failed to analyze or upload image."
+        );
+      } else {
+        console.error("Unexpected error:", err);
+        toast.error("❌ Unexpected error occurred.");
+      }
       setStatus("error");
-      toast.error("❌ Failed to analyze or upload image.");
       setMessages((prev) => [
         ...prev,
         "⚠️ Error analyzing image. Please try again.",
       ]);
     }
-  };
-
-  const getLocation = () => {
-    if (!navigator.geolocation) {
-      setStatus("error");
-      setMessages((prev) => [
-        ...prev,
-        "❌ Geolocation is not supported by this browser.",
-      ]);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            `📍 Your Detected Location: Lat: ${latitude.toFixed(
-              4
-            )}, Lon: ${longitude.toFixed(4)}`,
-          ]);
-        }, 1000);
-
-        setTimeout(() => {
-          handleNoteSubmit();
-        }, 2000);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            "📡 Shared your data with authorities.",
-          ]);
-        }, 3000);
-
-        setTimeout(() => {
-          setMessages((prev) => [...prev, "✅ Help will be coming soon."]);
-          setStatus("success");
-        }, 4000);
-
-        setLocation(
-          `Latitude: ${latitude.toFixed(4)}, Longitude: ${longitude.toFixed(4)}`
-        );
-      },
-      (error) => {
-        console.error("Geolocation Error:", error);
-        setStatus("error");
-        setMessages((prev) => [
-          ...prev,
-          "❌ Location access denied or not available. Please enable location services.",
-        ]);
-      }
-    );
   };
 
   const toggleSection = (section: string) => {

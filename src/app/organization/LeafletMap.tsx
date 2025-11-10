@@ -4,6 +4,8 @@ import { useRef, useEffect } from "react";
 import type { Map as LeafletMapInstance } from "leaflet";
 import { useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import Image from "next/image";
+import type { Report } from "./report";
 
 // Dynamic imports (SSR disabled)
 const MapContainer = dynamic(
@@ -22,21 +24,23 @@ const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), {
 });
 
 interface LeafletMapProps {
-  filteredReports: any[];
+  filteredReports: Report[];
   extractCoords: (location: string) => [number, number] | null;
-  getDisasterStyle: (prediction: string, confidence?: number) => any;
-  onSelectReport: (report: any) => void;
-  selectedReport?: any;
+  getDisasterStyle: (
+    prediction: string,
+    confidence?: number
+  ) => { radius: number; color: string; fill: string };
+  onSelectReport: (report: Report) => void;
+  selectedReport?: Report | null;
 }
 
 // ✅ Helper component to fly to selected report
-function FlyToReport({
-  selectedReport,
-  extractCoords,
-}: {
-  selectedReport: any;
+interface FlyToReportProps {
+  selectedReport?: Report | null; // ✅ note the ?
   extractCoords: (location: string) => [number, number] | null;
-}) {
+}
+
+function FlyToReport({ selectedReport, extractCoords }: FlyToReportProps) {
   const map = useMap();
 
   useEffect(() => {
@@ -48,7 +52,7 @@ function FlyToReport({
     }
   }, [selectedReport, extractCoords, map]);
 
-  return null; // this component only controls the map
+  return null;
 }
 
 export default function LeafletMap({
@@ -82,7 +86,7 @@ export default function LeafletMap({
       {filteredReports.map((report) => {
         const coords = extractCoords(report.location);
         if (!coords) return null;
-        const style = getDisasterStyle(report.prediction, report.confidence);
+        const style = getDisasterStyle(report.prediction);
         return (
           <Circle
             key={report._id}
@@ -100,9 +104,11 @@ export default function LeafletMap({
           >
             <Popup>
               <div className="text-center space-y-2 p-2 rounded-md">
-                <img
+                <Image
                   src={report.imageUrl || "/placeholder.jpg"}
                   alt="report"
+                  width={160} // ✅ required
+                  height={96} // ✅ required
                   className="w-40 h-24 object-cover rounded-md mx-auto"
                 />
                 <p className="text-sm font-semibold text-red-700">

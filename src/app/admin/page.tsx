@@ -107,9 +107,14 @@ const AdminDashboard = () => {
       setUsers([...users, res.data.user]);
       setNewUser({ name: "", email: "", password: "", role: "user" });
       toast.success(`🎉 User "${res.data.user.name}" added successfully!`);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.response?.data?.message || "❌ Failed to add user.");
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        // ✅ Type-safe access to err.response
+        toast.error(err.response?.data?.message || "❌ Failed to add user.");
+      } else {
+        console.error(err);
+        toast.error("❌ An unexpected error occurred.");
+      }
     }
   };
 

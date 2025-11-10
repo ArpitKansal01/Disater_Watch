@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import BlurText from "../ui/BlurText";
 import TextType from "../ui/TypeText";
 import { login, signup } from "../services/api";
+import axios from "axios";
 
 // ✅ Lazy load heavy animated cursors for performance
 const TargetCursor = dynamic(() => import("../ui/TargetCursor"), {
@@ -92,12 +93,17 @@ const Loginpage = () => {
         toast.success("🎉 Account created successfully!");
         setTimeout(() => router.push("/user"), 1000);
       }
-    } catch (err: any) {
-      const msg =
-        err.response?.data?.message ||
-        (err.request
-          ? "Network error. Please check your connection."
-          : "Unexpected error occurred.");
+    } catch (err: unknown) {
+      let msg = "Unexpected error occurred.";
+
+      if (axios.isAxiosError(err)) {
+        msg =
+          err.response?.data?.message ||
+          (err.request
+            ? "Network error. Please check your connection."
+            : "Unexpected error occurred.");
+      }
+
       setError(msg);
       toast.error(`❌ ${msg}`);
     } finally {
@@ -223,7 +229,9 @@ const Loginpage = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit(e as any)}
+              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                if (e.key === "Enter") handleSubmit(e);
+              }}
               placeholder="●●●●●●●●"
               className="w-full rounded-md border border-gray-700 cursor-pointer cursor-target bg-gray-900/70 px-4 py-2 text-gray-200 placeholder-gray-500 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-none"
             />

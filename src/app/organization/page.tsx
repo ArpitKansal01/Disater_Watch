@@ -3,8 +3,8 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { toast } from "sonner";
-import dynamic from "next/dynamic";
 import type { Map as LeafletMapInstance } from "leaflet";
+import * as L from "leaflet"; // ✅ For typing only
 import "leaflet/dist/leaflet.css";
 import {
   PieChart,
@@ -17,28 +17,11 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  BarChart,
-  Bar,
 } from "recharts";
 import LeafletMap from "./LeafletMap";
+import type { Report } from "./report";
 
-// ✅ Dynamic imports for Leaflet
-const MapContainer = dynamic(
-  () => import("react-leaflet").then((mod) => mod.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(
-  () => import("react-leaflet").then((mod) => mod.TileLayer),
-  { ssr: false }
-);
-const Circle = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Circle),
-  { ssr: false }
-);
-const Popup = dynamic(() => import("react-leaflet").then((mod) => mod.Popup), {
-  ssr: false,
-});
-
+// ✅ Interfaces
 interface Organization {
   _id: string;
   name: string;
@@ -47,16 +30,7 @@ interface Organization {
   isApproved: boolean;
 }
 
-interface Report {
-  _id: string;
-  prediction: string;
-  note: string;
-  location: string;
-  imageUrl: string;
-  createdAt: string;
-  confidence?: number;
-}
-
+// ✅ Colors for charts
 const COLORS = [
   "#ff4d4d",
   "#1e90ff",
@@ -73,30 +47,29 @@ const OrganizationDashboard = () => {
   const [filteredReports, setFilteredReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  const [LInstance, setLInstance] = useState<any>(null);
+  const [LInstance, setLInstance] = useState<typeof L | null>(null); // ✅ Fixed type
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const mapRef = useRef<LeafletMapInstance | null>(null);
 
-  // ✅ Top Affected Regions
+  // ✅ Top affected regions
   const topRegions = useMemo(() => {
     const regionCounts = reports.reduce((acc: Record<string, number>, r) => {
-      // Extract region name — customize this based on your location string
       const region = r.location.split(",")[0]?.trim() || "Unknown Region";
       acc[region] = (acc[region] || 0) + 1;
       return acc;
     }, {});
 
     return Object.entries(regionCounts)
-      .sort((a, b) => b[1] - a[1]) // sort descending
-      .slice(0, 5); // top 5
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
   }, [reports]);
 
-  // ✅ Load Leaflet
+  // ✅ Load Leaflet dynamically
   useEffect(() => {
-    import("leaflet").then((L) => setLInstance(L));
+    import("leaflet").then((leafletModule) => setLInstance(leafletModule));
   }, []);
 
   // ✅ Logout handler
@@ -132,7 +105,7 @@ const OrganizationDashboard = () => {
         setFilteredReports(reportsRes.data);
         setIsAuthorized(true);
         toast.success("✅ Reports loaded successfully");
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("Error fetching dashboard data:", err);
         toast.error("⚠️ Failed to load dashboard data.");
       } finally {
@@ -213,7 +186,7 @@ const OrganizationDashboard = () => {
     };
   };
 
-  // ✅ Analytics Computations
+  // ✅ Analytics computations
   const analyticsData = useMemo(() => {
     const counts: Record<string, number> = {};
     reports.forEach((r) => {
@@ -224,6 +197,7 @@ const OrganizationDashboard = () => {
       name: key.charAt(0).toUpperCase() + key.slice(1),
       value: counts[key],
     }));
+
     const lineDataMap: Record<string, number> = {};
     reports.forEach((r) => {
       const date = new Date(r.createdAt).toLocaleDateString();
@@ -233,6 +207,7 @@ const OrganizationDashboard = () => {
       date: d,
       count: lineDataMap[d],
     }));
+
     const mostCommon =
       pieData.sort((a, b) => b.value - a.value)[0]?.name || "N/A";
     const latest = reports.length
@@ -302,7 +277,7 @@ const OrganizationDashboard = () => {
               setEndDate("");
               setFilteredReports(reports);
             }}
-            className=" bg-gray-700 hover:bg-gray-600 px-4  py-1 rounded-md"
+            className=" bg-gray-700 hover:bg-gray-600 px-4 py-1 rounded-md"
           >
             Clear
           </button>
@@ -320,21 +295,15 @@ const OrganizationDashboard = () => {
       <div className="flex flex-1 overflow-hidden">
         {/* Map on Left */}
         <main className="flex-1 relative h-[calc(100vh-64px)]">
-          {typeof window !== "undefined" ? (
-            <LeafletMap
-              filteredReports={filteredReports}
-              extractCoords={extractCoords}
-              getDisasterStyle={getDisasterStyle}
-              onSelectReport={(r) => setSelectedReport(r)}
-              selectedReport={selectedReport}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full bg-gray-800 text-gray-400">
-              🗺️ Initializing map...
-            </div>
-          )}
+          <LeafletMap
+            filteredReports={filteredReports}
+            extractCoords={extractCoords}
+            getDisasterStyle={getDisasterStyle}
+            onSelectReport={(r) => setSelectedReport(r)}
+            selectedReport={selectedReport}
+          />
 
-          {/* ✅ Legend stays the same */}
+          {/* ✅ Legend */}
           <div className="absolute bottom-4 left-4 bg-gray-800/90 text-white text-sm rounded-lg p-3 shadow-lg space-y-1 border border-gray-700">
             <p className="font-bold mb-1">🧭 Legend</p>
             {[
@@ -356,20 +325,7 @@ const OrganizationDashboard = () => {
         </main>
 
         {/* ✅ Sidebar on Right */}
-        <aside
-          className="
-      w-[30%]
-      bg-gray-800
-      border-l border-gray-700
-      p-4
-      h-[calc(100vh-64px)]
-      overflow-y-auto
-      scrollbar-thin
-      scrollbar-thumb-gray-600
-      scrollbar-track-gray-800
-      hover:scrollbar-thumb-gray-500
-    "
-        >
+        <aside className="w-[30%] bg-gray-800 border-l border-gray-700 p-4 h-[calc(100vh-64px)] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 hover:scrollbar-thumb-gray-500">
           {/* Summary */}
           <div className="bg-gray-700 rounded-lg p-3 space-y-1">
             <p>Total Reports: {reports.length}</p>
@@ -450,6 +406,7 @@ const OrganizationDashboard = () => {
               </LineChart>
             </ResponsiveContainer>
           </div>
+
           {/* 🌍 Top Affected Regions */}
           <div className="bg-gray-700 rounded-lg p-3 mt-4 mb-4">
             <h3 className="text-sm font-semibold mb-2 text-center">
