@@ -333,31 +333,57 @@ const OrganizationDashboard = () => {
             <p>Latest Report: {analyticsData.latest}</p>
           </div>
 
-          {/* Report List */}
+          {/* Report List (show 4 initially, rest scrollable) */}
           <div>
             <p className="text-sm font-bold text-gray-300 mt-3 mb-2">
               Reports ({filteredReports.length})
             </p>
-            <ul className="space-y-2">
-              {filteredReports.map((report) => (
-                <li
-                  key={report._id}
-                  onClick={() => setSelectedReport(report)}
-                  className={`p-2 rounded-lg cursor-pointer transition transform hover:scale-[1.02] ${
-                    selectedReport?._id === report._id
-                      ? "bg-red-600 text-white"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                >
-                  <p className="font-semibold capitalize">
-                    {report.prediction.replace("_", " ")}
-                  </p>
-                  <p className="text-xs text-gray-300 line-clamp-2">
-                    {report.note}
-                  </p>
-                </li>
-              ))}
-            </ul>
+
+            <div className="max-h-[250px] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 hover:scrollbar-thumb-gray-500 rounded-md p-1">
+              <ul className="space-y-2">
+                {filteredReports.slice(0, 4).map((report) => (
+                  <li
+                    key={report._id}
+                    onClick={() => setSelectedReport(report)}
+                    className={`p-2 rounded-lg cursor-pointer transition transform hover:scale-[1.02] ${
+                      selectedReport?._id === report._id
+                        ? "bg-red-600 text-white"
+                        : "bg-gray-700 hover:bg-gray-600"
+                    }`}
+                  >
+                    <p className="font-semibold capitalize">
+                      {report.prediction.replace("_", " ")}
+                    </p>
+                    <p className="text-xs text-gray-300 line-clamp-2">
+                      {report.note}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              {filteredReports.length > 4 && (
+                <ul className="space-y-2 mt-2">
+                  {filteredReports.slice(4).map((report) => (
+                    <li
+                      key={report._id}
+                      onClick={() => setSelectedReport(report)}
+                      className={`p-2 rounded-lg cursor-pointer transition transform hover:scale-[1.02] ${
+                        selectedReport?._id === report._id
+                          ? "bg-red-600 text-white"
+                          : "bg-gray-700 hover:bg-gray-600"
+                      }`}
+                    >
+                      <p className="font-semibold capitalize">
+                        {report.prediction.replace("_", " ")}
+                      </p>
+                      <p className="text-xs text-gray-300 line-clamp-2">
+                        {report.note}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
           {/* Charts */}

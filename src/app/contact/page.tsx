@@ -121,7 +121,7 @@ const ContactPage = () => {
       {/* ✅ Back button on top-left corner */}
       <button
         onClick={() => router.back()}
-        className="absolute top-6 left-6 bg-purple-600 cursor-pointer cursor-target hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-md transition"
+        className="absolute top-6 md:left-6 max-md:right-6 z-10 bg-purple-600 cursor-pointer cursor-target hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-md transition"
       >
         ← Back
       </button>

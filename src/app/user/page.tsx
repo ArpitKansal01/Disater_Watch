@@ -7,6 +7,7 @@ import SplashCursor from "../ui/SplashCursor";
 import axios from "axios";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import Loader from "../ui/Loader";
 
 type Status =
   | "idle"
@@ -171,6 +172,21 @@ const UserDashboard: React.FC = () => {
 
   return (
     <div className="flex flex-col lg:flex-row lg:gap-10 items-center justify-center min-h-screen p-4 font-sans relative">
+      {/* 🌀 Global Loading Overlay */}
+      {(status === "uploading" ||
+        status === "checking" ||
+        status === "predicting") && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+          {/* <div className="animate-spin rounded-full h-16 w-16 border-4 border-t-transparent border-purple-500 mb-6"></div> */}
+          <Loader />
+          <p className="text-white font-semibold text-lg mt-2">
+            {status === "uploading" && "📤 Uploading image..."}
+            {status === "predicting" && "🧠 Analyzing disaster type..."}
+            {status === "checking" && "🔍 Checking status..."}
+          </p>
+        </div>
+      )}
+
       {isLaptop && <TargetCursor spinDuration={2} hideDefaultCursor={true} />}
       <div className="absolute inset-0 -z-10">
         {isLaptop && <SplashCursor />}
@@ -185,11 +201,11 @@ const UserDashboard: React.FC = () => {
       </button>
 
       {/* Guidelines Section */}
-      <div className="w-full lg:max-w-sm xl:max-w-md mb-6 lg:mb-0">
+      <div className="w-full lg:max-w-sm xl:max-w-md mb-6 lg:mb-0 max-lg:mt-15">
         <div className="lg:hidden">
           <button
             onClick={() => toggleSection("guidelines")}
-            className="w-full flex justify-between items-center px-4 py-3 rounded-lg font-bold"
+            className="w-full flex gap-5 items-center px-4 py-3 rounded-lg font-bold"
           >
             Photo Submission Guidelines
             <span>{openSection === "guidelines" ? "▲" : "▼"}</span>
@@ -205,6 +221,27 @@ const UserDashboard: React.FC = () => {
             </div>
           )}
         </div>
+        <div className="lg:hidden">
+          <button
+            onClick={() => toggleSection("tips")}
+            className="w-full flex gap-5 items-center px-4 py-3 rounded-lg font-bold"
+          >
+            Survival Tips
+            <span>{openSection === "tips" ? "▲" : "▼"}</span>
+          </button>
+          {openSection === "tips" && (
+            <div className="mt-2 rounded-xl shadow-md p-4 text-sm border-1 border-white/20">
+              <ul className="list-disc list-inside space-y-2">
+                <li>Stay calm and follow authorities’ instructions.</li>
+                <li>Keep water and food supplies safe.</li>
+                <li>Evacuate immediately if instructed.</li>
+                <li>Stay in contact with family and neighbors.</li>
+                <li>Avoid fire and electrical hazards.</li>
+              </ul>
+            </div>
+          )}
+        </div>
+
         <SpotlightCard
           className="custom-spotlight-card"
           spotlightColor="rgba(211, 38, 182, 0.48)"
@@ -333,26 +370,6 @@ const UserDashboard: React.FC = () => {
 
       {/* Survival Tips Section */}
       <div className="w-full lg:max-w-sm xl:max-w-md">
-        <div className="lg:hidden">
-          <button
-            onClick={() => toggleSection("tips")}
-            className="w-full flex justify-between items-center px-4 py-3 rounded-lg font-bold"
-          >
-            Survival Tips
-            <span>{openSection === "tips" ? "▲" : "▼"}</span>
-          </button>
-          {openSection === "tips" && (
-            <div className="mt-2 rounded-xl shadow-md p-4 text-sm border-1 border-white/20">
-              <ul className="list-disc list-inside space-y-2">
-                <li>Stay calm and follow authorities’ instructions.</li>
-                <li>Keep water and food supplies safe.</li>
-                <li>Evacuate immediately if instructed.</li>
-                <li>Stay in contact with family and neighbors.</li>
-                <li>Avoid fire and electrical hazards.</li>
-              </ul>
-            </div>
-          )}
-        </div>
         <SpotlightCard
           className="custom-spotlight-card"
           spotlightColor="rgba(211, 38, 182, 0.48)"

@@ -86,7 +86,7 @@ const AdminDashboard = () => {
       } catch (err) {
         console.error(err);
         toast.error("❌ Failed to load admin data. Redirecting...");
-        router.push("/login");
+        router.push("/");
       } finally {
         setLoading(false);
       }
