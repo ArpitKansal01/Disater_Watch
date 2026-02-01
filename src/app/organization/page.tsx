@@ -53,19 +53,129 @@ const OrganizationDashboard = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const mapRef = useRef<LeafletMapInstance | null>(null);
+  const [selectedDisaster, setSelectedDisaster] = useState<string>("all");
+  const [selectedSeverity, setSelectedSeverity] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+
+  const disasterTypes = useMemo(() => {
+    const set = new Set<string>();
+    reports
+      .filter((r) => r.status !== "false")
+      .forEach((r) => {
+        if (r.classify) set.add(r.classify.toLowerCase());
+      });
+    return Array.from(set);
+  }, [reports]);
 
   // ✅ Top affected regions
   const topRegions = useMemo(() => {
-    const regionCounts = reports.reduce((acc: Record<string, number>, r) => {
-      const region = r.location.split(",")[0]?.trim() || "Unknown Region";
-      acc[region] = (acc[region] || 0) + 1;
-      return acc;
-    }, {});
+    type RegionData = {
+      count: number;
+      lat: number;
+      lng: number;
+    };
 
-    return Object.entries(regionCounts)
+    const regionMap: Record<string, RegionData> = {};
+
+    reports.forEach((r) => {
+      if (!r.location) return;
+
+      // 1️⃣ Extract region name (remove coordinates)
+      const regionName = r.location.replace(/\(.*?\)/, "").trim();
+
+      // 2️⃣ Extract coordinates "(lat, lng)"
+      const coordMatch = r.location.match(/\(([-\d.]+)\s*,\s*([-\d.]+)\)/);
+
+      if (!regionMap[regionName]) {
+        regionMap[regionName] = {
+          count: 0,
+          lat: coordMatch ? parseFloat(coordMatch[1]) : 0,
+          lng: coordMatch ? parseFloat(coordMatch[2]) : 0,
+        };
+      }
+
+      regionMap[regionName].count += 1;
+    });
+
+    // 3️⃣ Build final display format
+    return Object.entries(regionMap)
+      .map(
+        ([region, data]) =>
+          [
+            `${region} (${data.lat.toFixed(4)}, ${data.lng.toFixed(4)})`,
+            data.count,
+          ] as [string, number],
+      )
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
   }, [reports]);
+
+  const classificationStyles = {
+    fire: "#dc2626",
+    flood: "#2563eb",
+    landslide: "#92400e",
+    "damaged buildings": "#facc15",
+    "fallen trees": "#16a34a",
+    other: "#7c3aed",
+  };
+
+  const normalizeDisasterKey = (value: string) =>
+    value.toLowerCase().replace(/_/g, " ").trim();
+
+  const DISASTER_COLORS: Record<string, string> = {
+    fire: "#dc2626",
+    flood: "#2563eb",
+    landslide: "#92400e",
+    "damaged buildings": "#facc15",
+    "fallen trees": "#16a34a",
+    other: "#7c3aed",
+  };
+
+  const severityScale = {
+    severe: { radius: 15000, opacity: 0.75 },
+    medium: { radius: 9000, opacity: 0.5 },
+    low: { radius: 5000, opacity: 0.25 },
+    "no damage": { radius: 2500, opacity: 0.25 },
+  };
+  const normalizeSeverity = (value?: string) =>
+    value?.toLowerCase().replace(/_/g, " ").trim();
+
+  const SEVERITY_COLORS: Record<string, string> = {
+    severe: "#dc2626", // red
+    medium: "#f97316", // orange
+    low: "#facc15", // yellow
+    "no damage": "#9ca3af", // gray
+  };
+
+  const getMarkerStyle = (report: Report) => {
+    const sevKey = normalizeSeverity(report.severity) || "low";
+    const typeKey = normalizeDisasterKey(report.classify || "other");
+
+    const sev =
+      severityScale[sevKey as keyof typeof severityScale] || severityScale.low;
+
+    // 🟢 CASE 1: All disasters → color by disaster type
+    if (selectedDisaster === "all") {
+      const disasterColor = DISASTER_COLORS[typeKey] ?? DISASTER_COLORS.other;
+
+      return {
+        color: disasterColor,
+        fill: disasterColor,
+        radius: sev.radius,
+        fillOpacity: sev.opacity,
+      };
+    }
+
+    // 🔴 CASE 2: Specific disaster selected → color by severity
+    const severityColor = SEVERITY_COLORS[sevKey] ?? SEVERITY_COLORS.low;
+
+    return {
+      color: severityColor,
+      fill: severityColor,
+      radius: sev.radius,
+      fillOpacity: sev.opacity,
+    };
+  };
 
   // ✅ Load Leaflet dynamically
   useEffect(() => {
@@ -79,6 +189,22 @@ const OrganizationDashboard = () => {
     toast.success("👋 Logged out successfully!");
     setTimeout(() => router.push("/"), 800);
   };
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get("http://localhost:8080/api/reports/all", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setReports(res.data);
+      } catch {}
+    }, 20000); // 🔄 every 20s
+
+    return () => clearInterval(interval);
+  }, [isAuthorized]);
 
   // ✅ Fetch data
   useEffect(() => {
@@ -94,10 +220,12 @@ const OrganizationDashboard = () => {
 
       try {
         const [orgRes, reportsRes] = await Promise.all([
-          axios.get("https://disaster-watch-backend.onrender.com/api/auth/me", {
+          axios.get("http://localhost:8080/api/auth/me", {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          axios.get("https://disaster-watch-backend.onrender.com/api/reports"),
+          axios.get("http://localhost:8080/api/reports/all", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
         ]);
 
         setOrg(orgRes.data.user);
@@ -108,6 +236,7 @@ const OrganizationDashboard = () => {
       } catch (err: unknown) {
         console.error("Error fetching dashboard data:", err);
         toast.error("⚠️ Failed to load dashboard data.");
+        handleLogout();
       } finally {
         setLoading(false);
       }
@@ -119,84 +248,196 @@ const OrganizationDashboard = () => {
   // ✅ Filtering logic
   useEffect(() => {
     let filtered = [...reports];
-    if (searchTerm)
+
+    // 🔥 Disaster filter
+    if (selectedDisaster !== "all") {
+      filtered = filtered.filter(
+        (r) => normalizeDisasterKey(r.classify || "") === selectedDisaster,
+      );
+    }
+
+    // 🔥 Severity filter
+    if (selectedSeverity !== "all") {
       filtered = filtered.filter(
         (r) =>
-          r.prediction.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          r.note.toLowerCase().includes(searchTerm.toLowerCase())
+          normalizeSeverity(r.severity) === normalizeSeverity(selectedSeverity),
       );
-    if (startDate)
+    }
+
+    // 🔥 STATUS filter
+    if (selectedStatus !== "all") {
       filtered = filtered.filter(
-        (r) => new Date(r.createdAt) >= new Date(startDate)
+        (r) => r.status?.toLowerCase() === selectedStatus,
       );
-    if (endDate)
+    }
+
+    // 🔍 Search
+    if (searchTerm) {
       filtered = filtered.filter(
-        (r) => new Date(r.createdAt) <= new Date(endDate)
+        (r) =>
+          (r.classify || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (r.severity || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (r.note || "").toLowerCase().includes(searchTerm.toLowerCase()),
       );
+    }
+
+    // 📅 Date range
+    if (startDate) {
+      filtered = filtered.filter(
+        (r) => new Date(r.createdAt) >= new Date(startDate),
+      );
+    }
+
+    if (endDate) {
+      filtered = filtered.filter(
+        (r) => new Date(r.createdAt) <= new Date(endDate),
+      );
+    }
+
     setFilteredReports(filtered);
-  }, [searchTerm, startDate, endDate, reports]);
+  }, [
+    reports,
+    selectedDisaster,
+    selectedSeverity,
+    selectedStatus, // ✅ IMPORTANT
+    searchTerm,
+    startDate,
+    endDate,
+  ]);
+
+  const STATUS_COLORS: Record<string, string> = {
+    pending: "text-yellow-400",
+    verified: "text-green-400",
+    responding: "text-orange-400",
+    resolved: "text-blue-400",
+    false: "text-red-400",
+  };
 
   // ✅ Extract coordinates safely
-  const extractCoords = (location: string): [number, number] | null => {
-    const latMatch = location.match(/Latitude:\s*([\d.-]+)/);
-    const lonMatch = location.match(/Longitude:\s*([\d.-]+)/);
-    return latMatch && lonMatch
-      ? [parseFloat(latMatch[1]), parseFloat(lonMatch[1])]
-      : null;
-  };
+  const extractCoords = useMemo(
+    () =>
+      (location: string): [number, number] | null => {
+        if (!location) return null;
 
-  // ✅ Disaster styles
-  const disasterStyles = useMemo(
-    () => ({
-      fire: { color: "#ff4d4d", fill: "rgba(255,0,0,0.4)", radius: 5000 },
-      flood: { color: "#1e90ff", fill: "rgba(30,144,255,0.4)", radius: 12000 },
-      "damaged buildings": {
-        color: "#ffcc00",
-        fill: "rgba(255,204,0,0.4)",
-        radius: 3000,
+        // Match "(lat, lng)"
+        const match = location.match(/\(([-\d.]+)\s*,\s*([-\d.]+)\)/);
+
+        if (!match) return null;
+
+        const lat = parseFloat(match[1]);
+        const lng = parseFloat(match[2]);
+
+        if (isNaN(lat) || isNaN(lng)) return null;
+
+        return [lat, lng];
       },
-      landslide: {
-        color: "#996633",
-        fill: "rgba(153,102,51,0.4)",
-        radius: 8000,
-      },
-      "fallen trees": {
-        color: "#228b22",
-        fill: "rgba(34,139,34,0.4)",
-        radius: 2000,
-      },
-    }),
-    []
+    [],
   );
 
-  const getDisasterStyle = (prediction: string, confidence?: number) => {
-    const key = prediction.toLowerCase();
-    let style = disasterStyles.fire;
-    if (key.includes("fire")) style = disasterStyles.fire;
-    else if (key.includes("flood")) style = disasterStyles.flood;
-    else if (key.includes("damaged"))
-      style = disasterStyles["damaged buildings"];
-    else if (key.includes("landslide")) style = disasterStyles.landslide;
-    else if (key.includes("tree")) style = disasterStyles["fallen trees"];
-    else
-      style = { color: "#b266ff", fill: "rgba(178,102,255,0.4)", radius: 3000 };
-    return {
-      ...style,
-      radius: confidence ? style.radius * confidence : style.radius,
-    };
+  const handleVerify = async (reportId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `http://localhost:8080/api/reports/${reportId}/verify`,
+        { note: "Verified by authority" },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      toast.success("✅ Report verified");
+      setReports((prev) =>
+        prev.map((r) =>
+          r._id === reportId ? { ...r, status: "verified" } : r,
+        ),
+      );
+    } catch {
+      toast.error("Failed to verify report");
+    }
   };
+
+  const handleReject = async (reportId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `http://localhost:8080/api/reports/${reportId}/false`,
+        { note: "Invalid or false report" },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      toast.success("❌ Report rejected");
+      setReports((prev) =>
+        prev.map((r) => (r._id === reportId ? { ...r, status: "false" } : r)),
+      );
+    } catch {
+      toast.error("Failed to reject report");
+    }
+  };
+
+  const handleRespond = async (reportId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `http://localhost:8080/api/reports/${reportId}/respond`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      toast.success("🚑 Help dispatched");
+
+      setReports((prev) =>
+        prev.map((r) =>
+          r._id === reportId ? { ...r, status: "responding" } : r,
+        ),
+      );
+    } catch {
+      toast.error("Failed to dispatch help");
+    }
+  };
+
+  const handleResolve = async (reportId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `http://localhost:8080/api/reports/${reportId}/resolve`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      toast.success("🟢 Report resolved");
+
+      setReports((prev) =>
+        prev.map((r) =>
+          r._id === reportId ? { ...r, status: "resolved" } : r,
+        ),
+      );
+    } catch {
+      toast.error("Failed to resolve report");
+    }
+  };
+  const mapReports = useMemo(() => {
+    return filteredReports.filter(
+      (r) => r.status !== "resolved" && r.status !== "false",
+    );
+  }, [filteredReports]);
 
   // ✅ Analytics computations
   const analyticsData = useMemo(() => {
     const counts: Record<string, number> = {};
     reports.forEach((r) => {
-      const key = r.prediction.toLowerCase();
+      const key = (r.classify || "unknown").toLowerCase();
       counts[key] = (counts[key] || 0) + 1;
     });
-    const pieData = Object.keys(counts).map((key) => ({
-      name: key.charAt(0).toUpperCase() + key.slice(1),
-      value: counts[key],
-    }));
+    const pieData = Object.keys(counts).map((key) => {
+      const normalized = normalizeDisasterKey(key);
+
+      return {
+        key: normalized, // internal key
+        name: normalized
+          .split(" ")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" "), // display label
+        value: counts[key],
+      };
+    });
 
     const lineDataMap: Record<string, number> = {};
     reports.forEach((r) => {
@@ -212,7 +453,7 @@ const OrganizationDashboard = () => {
       pieData.sort((a, b) => b.value - a.value)[0]?.name || "N/A";
     const latest = reports.length
       ? new Date(
-          Math.max(...reports.map((r) => new Date(r.createdAt).getTime()))
+          Math.max(...reports.map((r) => new Date(r.createdAt).getTime())),
         ).toLocaleString()
       : "No Data";
     return { pieData, lineData, mostCommon, latest };
@@ -220,9 +461,16 @@ const OrganizationDashboard = () => {
 
   // ✅ Fly to selected report
   useEffect(() => {
-    if (selectedReport && mapRef.current && LInstance) {
+    if (
+      selectedReport &&
+      selectedReport.location && // ✅ GUARANTEE string
+      mapRef.current &&
+      LInstance
+    ) {
       const coords = extractCoords(selectedReport.location);
-      if (coords) mapRef.current.flyTo(coords, 9, { duration: 2 });
+      if (coords) {
+        mapRef.current.flyTo(coords, 9, { duration: 2 });
+      }
     }
   }, [selectedReport, LInstance]);
 
@@ -240,7 +488,7 @@ const OrganizationDashboard = () => {
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-gray-200">
       {/* ✅ Top Filter + Summary Bar */}
-      <div className="flex justify-between items-center gap-3 p-4 bg-gray-800 border-b border-gray-700">
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 p-4 bg-gray-800 border-b border-gray-700">
         <div className="flex flex-col">
           <h1 className="text-lg font-bold text-white">
             {org
@@ -250,34 +498,74 @@ const OrganizationDashboard = () => {
           <p className="text-xs text-gray-400">{org?.email}</p>
         </div>
 
-        <div className="flex gap-5">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full lg:w-auto">
           <input
             type="text"
             placeholder="Search disaster or note..."
-            className="px-3 py-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
+            className="px-3 py-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 w-full sm:w-[220px]"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+
           <input
             type="date"
-            className="px-4 py-1 bg-gray-700 rounded text-white"
+            className="px-3 cursor-pointer py-2 bg-gray-700 rounded text-white w-full sm:w-auto"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
+
           <input
             type="date"
-            className="px-4 py-1 bg-gray-700 rounded text-white"
+            className="px-3 py-2 cursor-pointer bg-gray-700 rounded text-white w-full sm:w-auto"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
+          <select
+            value={selectedDisaster}
+            onChange={(e) => setSelectedDisaster(e.target.value)}
+            className="px-3 py-2 bg-gray-700 text-white rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-500 w-full sm:w-[180px]"
+          >
+            <option value="all">All Disasters</option>
+            {disasterTypes.map((type) => (
+              <option key={type} value={type}>
+                {type.replace("_", " ").toUpperCase()}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedSeverity}
+            onChange={(e) => setSelectedSeverity(e.target.value)}
+            className="px-3 py-2 bg-gray-700 text-white rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-500 w-full sm:w-[180px]"
+          >
+            <option value="all">All Severities</option>
+            <option value="severe">Severe</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="px-3 py-2 bg-gray-700 text-white rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-500 w-full sm:w-[180px]"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="verified">Verified</option>
+            <option value="responding">Responding</option>
+            <option value="resolved">Resolved</option>
+            <option value="false">False</option>
+          </select>
+
           <button
             onClick={() => {
               setSearchTerm("");
               setStartDate("");
               setEndDate("");
+              setSelectedDisaster("all");
+              setSelectedSeverity("all");
               setFilteredReports(reports);
+              setSelectedStatus("all");
             }}
-            className=" bg-gray-700 hover:bg-gray-600 px-4 py-1 rounded-md"
+            className="bg-gray-700 cursor-pointer hover:bg-gray-600 px-4 py-2 rounded-md w-full sm:w-auto"
           >
             Clear
           </button>
@@ -285,47 +573,73 @@ const OrganizationDashboard = () => {
 
         <button
           onClick={handleLogout}
-          className=" bg-red-600 hover:bg-red-700 px-4 py-2 rounded-md"
+          className="bg-red-600 cursor-pointer hover:bg-red-700 px-4 py-2 rounded-md w-full sm:w-auto"
         >
           Logout
         </button>
       </div>
 
       {/* ✅ Main Content - Map Left, Sidebar Right */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden">
         {/* Map on Left */}
-        <main className="flex-1 relative h-[calc(100vh-64px)]">
+        <main className="w-full lg:flex-1 h-[50vh] sm:h-[60vh] lg:h-[calc(100vh-64px)] relative">
           <LeafletMap
-            filteredReports={filteredReports}
+            filteredReports={mapReports}
             extractCoords={extractCoords}
-            getDisasterStyle={getDisasterStyle}
+            getDisasterStyle={getMarkerStyle}
             onSelectReport={(r) => setSelectedReport(r)}
             selectedReport={selectedReport}
           />
 
           {/* ✅ Legend */}
-          <div className="absolute bottom-4 left-4 bg-gray-800/90 text-white text-sm rounded-lg p-3 shadow-lg space-y-1 border border-gray-700">
-            <p className="font-bold mb-1">🧭 Legend</p>
-            {[
-              ["#1e90ff", "Flood"],
-              ["#ff4d4d", "Fire"],
-              ["#ffcc00", "Damaged Buildings"],
-              ["#996633", "Landslide"],
-              ["#228b22", "Fallen Trees"],
-            ].map(([color, label]) => (
-              <div key={label} className="flex items-center gap-2">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: color }}
-                ></span>
-                {label}
-              </div>
-            ))}
+          <div
+            className="
+  absolute 
+  bottom-4 left-4 
+  max-w-[90%] 
+  bg-gray-800/90 
+  text-white 
+  text-xs 
+  rounded-lg 
+  p-3 
+  space-y-2 
+  border border-gray-700
+"
+          >
+            <p className="font-bold">🗺 Map Legend</p>
+
+            <p className="text-xs text-gray-400">Color → Disaster Type</p>
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              <span className="text-red-500">● Fire</span>
+              <span className="text-blue-500">● Flood</span>
+              <span className="text-yellow-400">● Damaged</span>
+              <span className="text-green-500">● Fallen Trees</span>
+              <span className="text-brown-500">● Landslide</span>
+              <span className="text-purple-400">● Other</span>
+            </div>
+
+            <p className="text-xs text-gray-400 mt-2">Size → Severity</p>
+            <div className="text-xs space-y-1">
+              <p>Large → Severe</p>
+              <p>Medium → Medium</p>
+              <p>Small → Low</p>
+              <p>Very Small → No Damage</p>
+            </div>
           </div>
         </main>
 
         {/* ✅ Sidebar on Right */}
-        <aside className="w-[30%] bg-gray-800 border-l border-gray-700 p-4 h-[calc(100vh-64px)] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 hover:scrollbar-thumb-gray-500">
+        <aside
+          className="
+  w-full 
+  lg:w-[30%] 
+  bg-gray-800 
+  border-l lg:border-l border-gray-700 
+  p-4 
+  max-h-[50vh] lg:max-h-none
+  overflow-y-auto
+"
+        >
           {/* Summary */}
           <div className="bg-gray-700 rounded-lg p-3 space-y-1">
             <p>Total Reports: {reports.length}</p>
@@ -334,12 +648,12 @@ const OrganizationDashboard = () => {
           </div>
 
           {/* Report List (show 4 initially, rest scrollable) */}
-          <div>
+          <div className="max-h-[200px] sm:max-h-[250px] max-lg:overflow-y-auto lg:overflow-hidden rounded-md p-1">
             <p className="text-sm font-bold text-gray-300 mt-3 mb-2">
               Reports ({filteredReports.length})
             </p>
 
-            <div className="max-h-[250px] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 hover:scrollbar-thumb-gray-500 rounded-md p-1">
+            <div className="max-h-[210px] overflow-x-hidden overflow-y-scroll scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 hover:scrollbar-thumb-gray-500 rounded-md p-1">
               <ul className="space-y-2">
                 {filteredReports.slice(0, 4).map((report) => (
                   <li
@@ -352,11 +666,77 @@ const OrganizationDashboard = () => {
                     }`}
                   >
                     <p className="font-semibold capitalize">
-                      {report.prediction.replace("_", " ")}
+                      {report.classify.replace("_", " ")}
                     </p>
+                    <p
+                      className={`capitalize font-medium ${
+                        report.severity === "severe"
+                          ? "text-red-400"
+                          : report.severity === "medium"
+                            ? "text-orange-400"
+                            : report.severity === "low"
+                              ? "text-yellow-400"
+                              : "text-gray-400"
+                      }`}
+                    >
+                      {report.severity.replace("_", " ")}
+                    </p>
+                    <p
+                      className={`text-xs font-semibold ${STATUS_COLORS[report.status]}`}
+                    >
+                      {report.status.toUpperCase()}
+                    </p>
+
                     <p className="text-xs text-gray-300 line-clamp-2">
                       {report.note}
                     </p>
+                    {/* 🏛 Government Actions */}
+                    {report.status === "pending" && (
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleVerify(report._id);
+                          }}
+                          className="px-2 py-1 bg-green-600 hover:bg-green-700 text-xs rounded"
+                        >
+                          Verify
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleReject(report._id);
+                          }}
+                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-xs rounded"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+
+                    {report.status === "verified" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRespond(report._id);
+                        }}
+                        className="mt-2 px-2 py-1 bg-orange-600 hover:bg-orange-700 text-xs rounded"
+                      >
+                        Dispatch Help
+                      </button>
+                    )}
+
+                    {report.status === "responding" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResolve(report._id);
+                        }}
+                        className="mt-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
+                      >
+                        Mark Resolved
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -374,11 +754,77 @@ const OrganizationDashboard = () => {
                       }`}
                     >
                       <p className="font-semibold capitalize">
-                        {report.prediction.replace("_", " ")}
+                        {report.classify.replace("_", " ")}
                       </p>
+                      <p
+                        className={`capitalize font-medium ${
+                          report.severity === "severe"
+                            ? "text-red-400"
+                            : report.severity === "medium"
+                              ? "text-orange-400"
+                              : report.severity === "low"
+                                ? "text-yellow-400"
+                                : "text-gray-400"
+                        }`}
+                      >
+                        {report.severity.replace("_", " ")}
+                      </p>
+                      <p
+                        className={`text-xs font-semibold ${STATUS_COLORS[report.status]}`}
+                      >
+                        {report.status.toUpperCase()}
+                      </p>
+
                       <p className="text-xs text-gray-300 line-clamp-2">
                         {report.note}
                       </p>
+                      {/* 🏛 Government Actions */}
+                      {report.status === "pending" && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleVerify(report._id);
+                            }}
+                            className="px-2 py-1 bg-green-600 hover:bg-green-700 text-xs rounded"
+                          >
+                            Verify
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReject(report._id);
+                            }}
+                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-xs rounded"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+
+                      {report.status === "verified" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRespond(report._id);
+                          }}
+                          className="mt-2 px-2 py-1 bg-orange-600 hover:bg-orange-700 text-xs rounded"
+                        >
+                          Dispatch Help
+                        </button>
+                      )}
+
+                      {report.status === "responding" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResolve(report._id);
+                          }}
+                          className="mt-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
+                        >
+                          Mark Resolved
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -391,23 +837,27 @@ const OrganizationDashboard = () => {
             <h3 className="text-sm font-semibold mb-2 text-center">
               Disaster Type Distribution
             </h3>
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={210}>
               <PieChart>
                 <Pie
                   data={analyticsData.pieData}
                   dataKey="value"
                   nameKey="name"
                   outerRadius={75}
-                  label
+                  label={({ name }) => name}
                 >
                   {analyticsData.pieData.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
+                      fill={DISASTER_COLORS[entry.key] ?? DISASTER_COLORS.other}
                     />
                   ))}
                 </Pie>
-                <Tooltip />
+
+                <Tooltip
+                  formatter={(value: number) => [`${value}`, "Reports"]}
+                  labelFormatter={(label) => `Disaster: ${label}`}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -416,7 +866,7 @@ const OrganizationDashboard = () => {
             <h3 className="text-sm font-semibold mb-2 text-center">
               Reports Over Time
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
+            <ResponsiveContainer width="100%" height={120}>
               <LineChart data={analyticsData.lineData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fill: "white", fontSize: 10 }} />
@@ -445,7 +895,7 @@ const OrganizationDashboard = () => {
                     key={region}
                     className="flex justify-between border-b border-gray-600 pb-1 last:border-none"
                   >
-                    <span className="truncate w-[70%]" title={region}>
+                    <span className="text-wrap w-[70%]" title={region}>
                       {region}
                     </span>
                     <span className="text-red-400 font-medium">{count}</span>

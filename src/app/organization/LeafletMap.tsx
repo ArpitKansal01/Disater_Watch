@@ -10,11 +10,11 @@ import type { Report } from "./report";
 // Dynamic imports (disable SSR for Leaflet)
 const MapContainer = dynamic(
   () => import("react-leaflet").then((m) => m.MapContainer),
-  { ssr: false }
+  { ssr: false },
 );
 const TileLayer = dynamic(
   () => import("react-leaflet").then((m) => m.TileLayer),
-  { ssr: false }
+  { ssr: false },
 );
 const Circle = dynamic(() => import("react-leaflet").then((m) => m.Circle), {
   ssr: false,
@@ -26,10 +26,12 @@ const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), {
 interface LeafletMapProps {
   filteredReports: Report[];
   extractCoords: (location: string) => [number, number] | null;
-  getDisasterStyle: (
-    prediction: string,
-    confidence?: number
-  ) => { radius: number; color: string; fill: string };
+  getDisasterStyle: (report: Report) => {
+    radius: number;
+    color: string;
+    fill: string;
+    fillOpacity: number;
+  };
   onSelectReport: (report: Report) => void;
   selectedReport?: Report | null;
 }
@@ -40,13 +42,19 @@ interface FlyToReportProps {
   extractCoords: (location: string) => [number, number] | null;
 }
 
-function FlyToReport({ selectedReport, extractCoords }: FlyToReportProps) {
+function FlyToReport({
+  selectedReport,
+  extractCoords,
+}: FlyToReportProps): null {
   const map = useMap();
 
   useEffect(() => {
-    if (selectedReport) {
+    if (selectedReport?.location) {
+      // ✅ GUARANTEE string
       const coords = extractCoords(selectedReport.location);
-      if (coords) map.flyTo(coords, 12, { duration: 1.5 });
+      if (coords) {
+        map.flyTo(coords, 12, { duration: 1.5 });
+      }
     }
   }, [selectedReport, extractCoords, map]);
 
@@ -64,7 +72,7 @@ export default function LeafletMap({
 
   // 🧭 3 View Modes
   const [view, setView] = useState<"satellite" | "street" | "dark">(
-    "satellite"
+    "satellite",
   );
 
   // ✅ Load last preference
@@ -82,12 +90,16 @@ export default function LeafletMap({
   // ✅ Cycle between modes
   const handleToggle = () => {
     setView((prev) =>
-      prev === "satellite" ? "street" : prev === "street" ? "dark" : "satellite"
+      prev === "satellite"
+        ? "street"
+        : prev === "street"
+          ? "dark"
+          : "satellite",
     );
   };
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full min-h-[300px]">
       <MapContainer
         key="main-map"
         center={[20.5937, 78.9629]}
@@ -125,18 +137,21 @@ export default function LeafletMap({
 
         {/* ✅ Render Disaster Circles */}
         {filteredReports.map((report) => {
+          if (!report.location) return null; // ✅ GUARANTEE string
           const coords = extractCoords(report.location);
           if (!coords) return null;
-          const style = getDisasterStyle(report.prediction);
+
+          const style = getDisasterStyle(report);
+
           return (
             <Circle
-              key={report._id}
+              key={`${report._id}-${report.classify}-${report.severity}`}
               center={coords}
               radius={style.radius}
               pathOptions={{
                 color: style.color,
                 fillColor: style.fill,
-                fillOpacity: 0.5,
+                fillOpacity: style.fillOpacity,
                 weight: 2,
               }}
               eventHandlers={{
@@ -144,7 +159,7 @@ export default function LeafletMap({
               }}
             >
               <Popup>
-                <div className="text-center space-y-2 p-2 rounded-md">
+                <div className="text-center rounded-md">
                   <Image
                     src={report.imageUrl || "/placeholder.jpg"}
                     alt="report"
@@ -153,7 +168,10 @@ export default function LeafletMap({
                     className="w-40 h-24 object-cover rounded-md mx-auto"
                   />
                   <p className="text-sm font-semibold text-red-700">
-                    {report.prediction}
+                    {report.classify}
+                  </p>
+                  <p className="text-sm font-semibold text-orange-600">
+                    {report.severity}
                   </p>
                   <p className="text-xs text-gray-700">{report.note}</p>
                   <p className="text-xs text-gray-500 italic mt-1">
@@ -174,8 +192,8 @@ export default function LeafletMap({
         {view === "satellite"
           ? "🗺 Street View"
           : view === "street"
-          ? "🌃 Dark Mode"
-          : "🛰 Satellite View"}
+            ? "🌃 Dark Mode"
+            : "🛰 Satellite View"}
       </button>
     </div>
   );

@@ -1,9 +1,10 @@
-export interface Report {
+export type Report = {
   _id: string;
-  prediction: string;
-  note: string;
-  location: string;
-  imageUrl?: string; // ✅ optional (matches LeafletMap)
+  imageUrl?: string;
+  classify: string;
+  severity: string;
+  status: "pending" | "verified" | "responding" | "resolved" | "false";
+  location?: string;
+  note?: string;
   createdAt: string;
-  confidence?: number;
-}
+};

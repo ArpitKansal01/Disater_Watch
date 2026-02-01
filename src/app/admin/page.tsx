@@ -69,13 +69,10 @@ const AdminDashboard = () => {
         setLoading(true);
 
         const [usersRes, contactsRes] = await Promise.all([
-          axios.get(
-            "https://disaster-watch-backend.onrender.com/api/auth/all-users",
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          ),
-          axios.get("https://disaster-watch-backend.onrender.com/api/contact", {
+          axios.get("http://localhost:8080/api/auth/all-users", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          axios.get("http://localhost:8080/api/contact", {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -100,9 +97,9 @@ const AdminDashboard = () => {
     const token = localStorage.getItem("token");
     try {
       const res = await axios.post(
-        "https://disaster-watch-backend.onrender.com/api/auth/add-user",
+        "http://localhost:8080/api/auth/add-user",
         newUser,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       setUsers([...users, res.data.user]);
       setNewUser({ name: "", email: "", password: "", role: "user" });
@@ -122,12 +119,9 @@ const AdminDashboard = () => {
   const removeUser = async (id: string) => {
     const token = localStorage.getItem("token");
     try {
-      await axios.delete(
-        `https://disaster-watch-backend.onrender.com/api/auth/remove-user/${id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      await axios.delete(`http://localhost:8080/api/auth/remove-user/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setUsers(users.filter((u) => u._id !== id));
       toast.success("🗑️ User removed successfully!");
     } catch (err) {
@@ -151,11 +145,13 @@ const AdminDashboard = () => {
   return (
     <div className="p-8 min-h-screen bg-gray-900 text-gray-200 relative">
       {/* ✅ Header with Logout Button */}
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-white">
+          Admin Dashboard
+        </h1>
         <button
           onClick={handleLogout}
-          className="bg-red-600 hover:bg-red-700 cursor-pointer transition text-white font-semibold py-2 px-4 rounded-md"
+          className="bg-red-600 cursor-pointer hover:bg-red-700 transition text-white font-semibold py-2 px-4 rounded-md w-full sm:w-auto"
         >
           Logout
         </button>
@@ -163,8 +159,11 @@ const AdminDashboard = () => {
 
       {/* Add User Form */}
       <div className="mb-8 p-4 border border-gray-700 rounded-md">
-        <h2 className="text-xl font-semibold mb-4 text-white">Add New User</h2>
-        <div className="flex gap-2 flex-wrap">
+        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-white">
+          Add New User
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <input
             type="text"
             placeholder="Name"
@@ -172,6 +171,7 @@ const AdminDashboard = () => {
             onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
             className="px-3 py-2 rounded border border-gray-700 bg-gray-800 text-gray-200"
           />
+
           <input
             type="email"
             placeholder="Email"
@@ -179,6 +179,7 @@ const AdminDashboard = () => {
             onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
             className="px-3 py-2 rounded border border-gray-700 bg-gray-800 text-gray-200"
           />
+
           <input
             type="password"
             placeholder="Password"
@@ -188,6 +189,7 @@ const AdminDashboard = () => {
             }
             className="px-3 py-2 rounded border border-gray-700 bg-gray-800 text-gray-200"
           />
+
           <select
             value={newUser.role}
             onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
@@ -197,9 +199,10 @@ const AdminDashboard = () => {
             <option value="organization">Organization</option>
             <option value="admin">Admin</option>
           </select>
+
           <button
             onClick={addUser}
-            className="px-4 py-2 bg-purple-600 cursor-pointer rounded hover:bg-purple-700 text-white transition"
+            className="px-4 cursor-pointer py-2 bg-purple-600 rounded hover:bg-purple-700 text-white transition w-full"
           >
             Add User
           </button>
@@ -207,75 +210,83 @@ const AdminDashboard = () => {
       </div>
 
       {/* Users Table */}
-      <h2 className="text-xl font-semibold mb-4 text-white">
+      <h2 className="text-lg sm:text-xl font-semibold mb-4 text-white">
         All Users & Organizations
       </h2>
-      <table className="min-w-full border border-gray-700 text-center">
-        <thead className="bg-gray-800 text-white">
-          <tr>
-            <th className="px-4 py-2 border">Name</th>
-            <th className="px-4 py-2 border">Email</th>
-            <th className="px-4 py-2 border">Role</th>
-            <th className="px-4 py-2 border">Action</th>
-          </tr>
-        </thead>
-        <tbody className="bg-gray-900 text-gray-200">
-          {users.map((user) => (
-            <tr key={user._id} className="text-center">
-              <td className="px-4 py-2 border">{user.name}</td>
-              <td className="px-4 py-2 border">{user.email}</td>
-              <td className="px-4 py-2 border">{user.role}</td>
-              <td className="px-4 py-2 border flex justify-center gap-2">
-                <button
-                  onClick={() => removeUser(user._id)}
-                  className="px-3 py-1 bg-red-600 cursor-pointer rounded hover:bg-red-700 text-white transition"
-                >
-                  Remove
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
 
-      {/* Organization Submissions */}
-      <h2 className="text-xl font-semibold mb-4 text-white mt-8">
-        Organization Submissions
-      </h2>
-      <table className="min-w-full border border-gray-700 text-center">
-        <thead className="bg-gray-800 text-white">
-          <tr>
-            <th className="px-4 py-2 border">Organization Name</th>
-            <th className="px-4 py-2 border">Email</th>
-            <th className="px-4 py-2 border">Document</th>
-          </tr>
-        </thead>
-        <tbody className="bg-gray-900 text-gray-200">
-          {contacts.map((contact) => {
-            const ext = getFileExtension(contact.registrationFile);
-            return (
-              <tr key={contact._id}>
-                <td className="px-4 py-2 border">{contact.orgName}</td>
-                <td className="px-4 py-2 border">{contact.email}</td>
+      <div className="overflow-x-auto">
+        <table className="min-w-[700px] w-full border border-gray-700 text-center">
+          <thead className="bg-gray-800 text-white">
+            <tr>
+              <th className="px-4 py-2 border">Name</th>
+              <th className="px-4 py-2 border">Email</th>
+              <th className="px-4 py-2 border">Role</th>
+              <th className="px-4 py-2 border">Action</th>
+            </tr>
+          </thead>
+          <tbody className="bg-gray-900 text-gray-200">
+            {users.map((user) => (
+              <tr key={user._id}>
+                <td className="px-4 py-2 border">{user.name}</td>
+                <td className="px-4 py-2 border break-all">{user.email}</td>
+                <td className="px-4 py-2 border capitalize">{user.role}</td>
                 <td className="px-4 py-2 border">
-                  {contact.registrationFile ? (
-                    <a
-                      href={contact.registrationFile}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-purple-400 underline hover:text-purple-300"
-                    >
-                      View Document ({ext.toUpperCase()})
-                    </a>
-                  ) : (
-                    "No document"
-                  )}
+                  <button
+                    onClick={() => removeUser(user._id)}
+                    className="px-3 py-1 cursor-pointer bg-red-600 rounded hover:bg-red-700 text-white transition w-full sm:w-auto"
+                  >
+                    Remove
+                  </button>
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Organization Submissions */}
+      <h2 className="text-lg sm:text-xl font-semibold mb-4 text-white mt-8">
+        Organization Submissions
+      </h2>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-[700px] w-full border border-gray-700 text-center">
+          <thead className="bg-gray-800 text-white">
+            <tr>
+              <th className="px-4 py-2 border">Organization Name</th>
+              <th className="px-4 py-2 border">Email</th>
+              <th className="px-4 py-2 border">Document</th>
+            </tr>
+          </thead>
+          <tbody className="bg-gray-900 text-gray-200">
+            {contacts.map((contact) => {
+              const ext = getFileExtension(contact.registrationFile);
+              return (
+                <tr key={contact._id}>
+                  <td className="px-4 py-2 border">{contact.orgName}</td>
+                  <td className="px-4 py-2 border break-all">
+                    {contact.email}
+                  </td>
+                  <td className="px-4 py-2 border">
+                    {contact.registrationFile ? (
+                      <a
+                        href={contact.registrationFile}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-purple-400 underline hover:text-purple-300"
+                      >
+                        View ({ext.toUpperCase()})
+                      </a>
+                    ) : (
+                      "No document"
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

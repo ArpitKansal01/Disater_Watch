@@ -62,13 +62,9 @@ const ContactPage = () => {
     if (registrationFile) formData.append("registrationFile", registrationFile);
 
     try {
-      await axios.post(
-        "https://disaster-watch-backend.onrender.com/api/contact",
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        }
-      );
+      await axios.post("http://localhost:8080/api/contact", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       setSubmitted(true);
     } catch (err) {
       console.error(err);
@@ -166,7 +162,7 @@ const ContactPage = () => {
               id="orgType"
               value={orgType}
               onChange={(e) => setOrgType(e.target.value)}
-              className="w-full  cursor-target px-4 py-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:outline-none focus:border-purple-600"
+              className="w-full cursor-pointer cursor-target px-4 py-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:outline-none focus:border-purple-600"
             >
               <option value="">Select type</option>
               <option value="NGO">NGO</option>

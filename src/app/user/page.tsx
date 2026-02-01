@@ -1,13 +1,19 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import TargetCursor from "../ui/TargetCursor";
-import TiltedCard from "../ui/TiltedCard";
 import SpotlightCard from "../ui/SpotlightCard";
-import SplashCursor from "../ui/SplashCursor";
 import axios from "axios";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Loader from "../ui/Loader";
+import dynamic from "next/dynamic";
+import ReportForm from "./ReportForm";
+
+const TargetCursor = dynamic(() => import("../ui/TargetCursor"), {
+  ssr: false,
+});
+const SplashCursor = dynamic(() => import("../ui/SplashCursor"), {
+  ssr: false,
+});
 
 type Status =
   | "idle"
@@ -27,10 +33,48 @@ const UserDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [userNote, setUserNote] = useState<string>("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [enableCursor, setEnableCursor] = useState(false);
+  const [cursorActive, setCursorActive] = useState(true);
+
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      setCursorActive(true);
+      clearTimeout(timeout);
+      timeout = setTimeout(() => setCursorActive(false), 8000); // 8s idle
+    };
+
+    window.addEventListener("mousemove", resetTimer);
+    window.addEventListener("click", resetTimer);
+
+    resetTimer();
+
+    return () => {
+      window.removeEventListener("mousemove", resetTimer);
+      window.removeEventListener("click", resetTimer);
+      clearTimeout(timeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const enable = () => setEnableCursor(true);
+    window.addEventListener("mousemove", enable, { once: true });
+    return () => window.removeEventListener("mousemove", enable);
+  }, []);
 
   // ✅ Detect laptop/desktop
   useEffect(() => {
-    const handleResize = () => setIsLaptop(window.innerWidth >= 1024);
+    let timeout: NodeJS.Timeout;
+
+    const handleResize = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        setIsLaptop(window.innerWidth >= 1024);
+      }, 150);
+    };
+
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
@@ -66,56 +110,98 @@ const UserDashboard: React.FC = () => {
     setTimeout(() => router.push("/"), 800);
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const selectedFile = e.target.files[0];
+  const getLocationName = async (
+    latitude: number,
+    longitude: number,
+  ): Promise<string> => {
+    try {
+      const res = await axios.get(
+        "https://nominatim.openstreetmap.org/reverse",
+        {
+          params: {
+            lat: latitude,
+            lon: longitude,
+            format: "json",
+          },
+          headers: {
+            "Accept-Language": "en",
+          },
+        },
+      );
+
+      return res.data.display_name || "Location name unavailable";
+    } catch (err) {
+      return "Location name unavailable";
+    }
+  };
+
+  const processFile = async (selectedFile: File) => {
     setMessages([]);
     setStatus("uploading");
     setImageUrl(URL.createObjectURL(selectedFile));
 
     try {
-      // ✅ First, get user’s geolocation before sending
-      const locationData = await new Promise<string>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject("Geolocation not supported");
-          return;
+      let locationData = "Location not available";
+
+      if (navigator.geolocation) {
+        try {
+          locationData = await new Promise<string>((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              async (position) => {
+                const { latitude, longitude } = position.coords;
+
+                const locationName = await getLocationName(latitude, longitude);
+
+                // extract generic region (city/state)
+                const genericLocation = locationName
+                  .split(",")
+                  .slice(-3)
+                  .join(",")
+                  .trim();
+
+                resolve(
+                  `${genericLocation} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
+                );
+              },
+              () => resolve("Location permission denied"),
+            );
+          });
+        } catch {
+          locationData = "Location unavailable";
         }
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const { latitude, longitude } = position.coords;
-            const loc = `Latitude: ${latitude.toFixed(
-              4
-            )}, Longitude: ${longitude.toFixed(4)}`;
+      }
 
-            resolve(loc);
-          },
-          (error) => {
-            console.error("Geolocation Error:", error);
-            reject("Failed to get location");
-          }
-        );
-      });
-
-      // ✅ Prepare FormData with file, note, and location
       const formData = new FormData();
       formData.append("file", selectedFile);
-      formData.append("note", userNote || "No note added");
+      const processedNote = await summarizeAndTranslateNote(userNote);
+      formData.append("note", processedNote);
+      console.log(processedNote);
       formData.append("location", locationData);
 
-      // ✅ Upload to backend
+      const token = localStorage.getItem("token");
+
       const response = await axios.post(
-        "https://disaster-watch-backend.onrender.com/api/classify/predict",
+        "http://192.168.0.104:8080/api/severity/predict",
         formData,
-        { headers: { "Content-Type": "multipart/form-data" } }
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`, // 🔥 REQUIRED
+          },
+        },
       );
 
-      const { message, saved } = response.data;
+      const { message, severity, saved, status, info } = response.data;
+      if (saved && info) {
+        setMessages((prev) => [...prev, `ℹ️ ${info}`]);
+      }
 
-      setMessages((prev) => [
-        ...prev,
+      setMessages([
         `🧠 Predicted Disaster Type: ${message
           .toUpperCase()
           .replace("_", " ")}`,
+        `🧠 Predicted Severity: ${severity.toUpperCase().replace("_", " ")}`,
+        `User Note: ${processedNote.toUpperCase().replace("_", " ")}`,
       ]);
 
       if (message === "NO DISASTER DETECTED") {
@@ -123,39 +209,70 @@ const UserDashboard: React.FC = () => {
         setStatus("success");
         return;
       }
+      if (message === "Duplicate Report") {
+        toast.info("Similar issue already reported at this location.");
+        setStatus("success");
+        return;
+      }
 
-      // ✅ If disaster detected and saved successfully
       if (saved) {
         setMessages((prev) => [
           ...prev,
           `📍 Location: ${locationData}`,
-          "📡 Data shared with authorities.",
-          "✅ Help will be coming soon.",
+          "📡 Report submitted to authorities.",
+          "⏳ Status: Under verification by government officials.",
         ]);
-        toast.success("🚨 Report successfully submitted!");
+        toast.success("🚨 Report submitted for verification!");
       }
 
       setStatus("success");
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        console.error("Prediction error:", err.response?.data);
-        toast.error(
-          err.response?.data?.message || "❌ Failed to analyze or upload image."
-        );
-      } else {
-        console.error("Unexpected error:", err);
-        toast.error("❌ Unexpected error occurred.");
-      }
+    } catch (err) {
+      toast.error("❌ Failed to analyze image.");
       setStatus("error");
-      setMessages((prev) => [
-        ...prev,
-        "⚠️ Error analyzing image. Please try again.",
-      ]);
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    processFile(e.target.files[0]);
   };
 
   const toggleSection = (section: string) => {
     setOpenSection(openSection === section ? null : section);
+  };
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (isDragging) setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFile(e.dataTransfer.files[0]);
+      e.dataTransfer.clearData();
+    }
+  };
+
+  const summarizeAndTranslateNote = async (note: string): Promise<string> => {
+    if (!note.trim()) return "No note added";
+
+    try {
+      const res = await axios.post(
+        "http://192.168.0.104:8080/api/ai/summarize-translate",
+        { text: note },
+      );
+
+      return res.data.result; // summarized + translated English text
+    } catch (err) {
+      toast.error("⚠️ Failed to process note. Using original note.");
+      return note; // fallback (important)
+    }
   };
 
   // ✅ Loading State
@@ -177,20 +294,30 @@ const UserDashboard: React.FC = () => {
         status === "checking" ||
         status === "predicting") && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-          {/* <div className="animate-spin rounded-full h-16 w-16 border-4 border-t-transparent border-purple-500 mb-6"></div> */}
           <Loader />
-          <p className="text-white font-semibold text-lg mt-2">
+          <p className="text-white font-semibold text-lg mt-4 animate-pulse">
             {status === "uploading" && "📤 Uploading image..."}
-            {status === "predicting" && "🧠 Analyzing disaster type..."}
-            {status === "checking" && "🔍 Checking status..."}
+            {status === "predicting" && "🧠 AI analyzing disaster..."}
+            {status === "checking" && "🔍 Verifying report..."}
           </p>
         </div>
       )}
 
-      {isLaptop && <TargetCursor spinDuration={2} hideDefaultCursor={true} />}
-      <div className="absolute inset-0 -z-10">
-        {isLaptop && <SplashCursor />}
-      </div>
+      {isLaptop && enableCursor && cursorActive && (
+        <>
+          <TargetCursor spinDuration={2} hideDefaultCursor />
+          <div className="absolute inset-0 -z-10">
+            <SplashCursor />
+          </div>
+        </>
+      )}
+
+      <button
+        onClick={() => router.push("/user/my-reports")}
+        className="absolute cursor-pointer cursor-target top-6 left-6 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md"
+      >
+        📋 My Reports
+      </button>
 
       {/* ✅ Logout Button */}
       <button
@@ -262,110 +389,18 @@ const UserDashboard: React.FC = () => {
 
       {/* Main Section */}
       <div className="flex-1 w-full h-full md:p-8 lg:p-0 mb-6 lg:mb-0 backdrop-blur-xs border border-white/20 rounded-2xl p-8 shadow-xl">
-        <SpotlightCard
-          className="custom-spotlight-card"
-          spotlightColor="rgba(211, 38, 182, 0.48)"
-        >
-          <div className="lg:p-4">
-            <div className="flex flex-col items-center mb-6 text-center">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-12 w-12 md:h-16 md:w-16 text-red-600 mb-2 animate-pulse"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-white">
-                Disaster Management
-              </h1>
-              <p className="text-sm md:text-base text-gray-500 mt-2">
-                Report your situation to authorities.
-              </p>
-            </div>
-
-            <div className="bg-red-50 p-4 md:p-6 lg:p-4 rounded-lg mb-6">
-              <p className="text-center text-xs md:text-sm lg:text-lg text-red-600 font-semibold">
-                🚨 In case of emergency, ensure your safety first, then report.
-              </p>
-            </div>
-
-            <div className="text-center space-y-6">
-              {/* 📝 User Note Section */}
-              <div className="mt-4 flex items-center justify-center">
-                <textarea
-                  value={userNote}
-                  onChange={(e) => setUserNote(e.target.value)}
-                  placeholder="Add any details, observations, or notes here..."
-                  className="w-2xl p-3 cursor-target rounded-lg border border-white/20 bg-gray-800/40 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none text-sm md:text-base mx-5"
-                  rows={3}
-                />
-              </div>
-              <label
-                htmlFor="file-upload"
-                className={`cursor-pointer inline-block bg-red-600 text-white font-bold py-3 px-6 md:px-8 rounded-full shadow-lg hover:bg-red-700 transition duration-300 transform hover:scale-105 cursor-target text-sm md:text-base ${
-                  status === "checking" ||
-                  status === "predicting" ||
-                  status === "uploading"
-                    ? "opacity-50 pointer-events-none"
-                    : ""
-                }`}
-              >
-                📸 Upload or Click a Photo
-                <input
-                  id="file-upload"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
-              </label>
-            </div>
-
-            {/* Uploaded Image + Messages */}
-            <div className="mt-6 text-center min-h-[120px]">
-              {imageUrl && (
-                <div className="mb-4 flex items-center justify-center">
-                  <TiltedCard
-                    imageSrc={imageUrl}
-                    containerHeight="300px"
-                    containerWidth="300px"
-                    imageHeight="250px"
-                    imageWidth="250px"
-                    rotateAmplitude={12}
-                    scaleOnHover={1.2}
-                    showMobileWarning={false}
-                    showTooltip={false}
-                    displayOverlayContent={false}
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                {messages.map((msg, index) => (
-                  <p
-                    key={index}
-                    className={`text-sm md:text-lg font-bold transition-opacity duration-500 ${
-                      msg.includes("Predicted Disaster Type")
-                        ? "text-red-600"
-                        : msg.includes("Help will be coming soon.")
-                        ? "text-green-600"
-                        : "text-gray-400"
-                    }`}
-                  >
-                    {msg}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
-        </SpotlightCard>
+        <ReportForm
+          userNote={userNote}
+          setUserNote={setUserNote}
+          isDragging={isDragging}
+          status={status}
+          imageUrl={imageUrl}
+          messages={messages}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          handleFileChange={handleFileChange}
+        />
       </div>
 
       {/* Survival Tips Section */}
