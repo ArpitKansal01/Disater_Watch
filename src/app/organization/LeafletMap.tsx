@@ -98,6 +98,18 @@ export default function LeafletMap({
     );
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+
+    return date.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   return (
     <div className="relative w-full h-full min-h-[300px]">
       <MapContainer
@@ -159,23 +171,40 @@ export default function LeafletMap({
               }}
             >
               <Popup>
-                <div className="text-center rounded-md">
+                <div className="text-center rounded-md w-44">
                   <Image
                     src={report.imageUrl || "/placeholder.jpg"}
                     alt="report"
                     width={160}
                     height={96}
-                    className="w-40 h-24 object-cover rounded-md mx-auto"
+                    className="w-40 h-24 object-cover rounded-md mx-auto mb-1"
                   />
-                  <p className="text-sm font-semibold text-red-700">
-                    {report.classify}
+
+                  {/* Disaster Type */}
+                  <p className="text-sm font-semibold text-red-700 capitalize">
+                    {report.classify.replace("_", " ")}
                   </p>
-                  <p className="text-sm font-semibold text-orange-600">
-                    {report.severity}
+
+                  {/* Severity */}
+                  <p className="text-sm font-semibold text-orange-600 capitalize">
+                    Severity: {report.severity.replace("_", " ")}
                   </p>
-                  <p className="text-xs text-gray-700">{report.note}</p>
+
+                  {/* Uploaded Date */}
+                  <p className="text-xs text-blue-600 font-medium mt-1">
+                    📅 {formatDate(report.createdAt)}
+                  </p>
+
+                  {/* Note */}
+                  {report.note && (
+                    <p className="text-xs text-gray-700 mt-1 line-clamp-2">
+                      {report.note}
+                    </p>
+                  )}
+
+                  {/* Location */}
                   <p className="text-xs text-gray-500 italic mt-1">
-                    {report.location}
+                    📍 {report.location}
                   </p>
                 </div>
               </Popup>

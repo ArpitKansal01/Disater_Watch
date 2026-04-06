@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { toast } from "sonner"; // ✅ Toast import
+import API from "../lib/api";
 
 interface User {
   _id: string;
@@ -69,12 +70,8 @@ const AdminDashboard = () => {
         setLoading(true);
 
         const [usersRes, contactsRes] = await Promise.all([
-          axios.get("http://localhost:8080/api/auth/all-users", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          axios.get("http://localhost:8080/api/contact", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+          API.get("/auth/all-users"),
+          API.get("/contact"),
         ]);
 
         setUsers(usersRes.data);
@@ -96,11 +93,8 @@ const AdminDashboard = () => {
   const addUser = async () => {
     const token = localStorage.getItem("token");
     try {
-      const res = await axios.post(
-        "http://localhost:8080/api/auth/add-user",
-        newUser,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      const res = await API.post("/auth/add-user", newUser);
+
       setUsers([...users, res.data.user]);
       setNewUser({ name: "", email: "", password: "", role: "user" });
       toast.success(`🎉 User "${res.data.user.name}" added successfully!`);
@@ -119,9 +113,8 @@ const AdminDashboard = () => {
   const removeUser = async (id: string) => {
     const token = localStorage.getItem("token");
     try {
-      await axios.delete(`http://localhost:8080/api/auth/remove-user/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await API.delete(`/auth/remove-user/${id}`);
+
       setUsers(users.filter((u) => u._id !== id));
       toast.success("🗑️ User removed successfully!");
     } catch (err) {

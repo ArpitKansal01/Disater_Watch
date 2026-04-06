@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import API from "../lib/api";
 import { toast } from "sonner";
 import type { Map as LeafletMapInstance } from "leaflet";
 import * as L from "leaflet"; // ✅ For typing only
@@ -20,6 +20,7 @@ import {
 } from "recharts";
 import LeafletMap from "./LeafletMap";
 import type { Report } from "./report";
+import { socket } from "../components/socket";
 
 // ✅ Interfaces
 interface Organization {
@@ -56,6 +57,7 @@ const OrganizationDashboard = () => {
   const [selectedDisaster, setSelectedDisaster] = useState<string>("all");
   const [selectedSeverity, setSelectedSeverity] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [dataLoading, setDataLoading] = useState(true);
 
   const disasterTypes = useMemo(() => {
     const set = new Set<string>();
@@ -133,8 +135,8 @@ const OrganizationDashboard = () => {
 
   const severityScale = {
     severe: { radius: 15000, opacity: 0.75 },
-    medium: { radius: 9000, opacity: 0.5 },
-    low: { radius: 5000, opacity: 0.25 },
+    medium: { radius: 9000, opacity: 0.75 },
+    low: { radius: 5000, opacity: 0.75 },
     "no damage": { radius: 2500, opacity: 0.25 },
   };
   const normalizeSeverity = (value?: string) =>
@@ -177,6 +179,47 @@ const OrganizationDashboard = () => {
     };
   };
 
+  useEffect(() => {
+    socket.on("connect", () => {});
+
+    // ✅ NEW REPORT CREATED
+    socket.on("reportCreated", (newReport: Report) => {
+      setReports((prev) => {
+        // prevent duplicate
+        const exists = prev.some((r) => r._id === newReport._id);
+        if (exists) return prev;
+
+        return [newReport, ...prev];
+      });
+
+      toast.success(`🚨 New ${newReport.classify} reported`);
+    });
+
+    // ✅ REPORT UPDATED
+    socket.on("reportUpdated", (updatedReport: Report) => {
+      setReports((prev) => {
+        // remove old version
+        const filtered = prev.filter((r) => r._id !== updatedReport._id);
+
+        // add updated version at top
+        const updated = [updatedReport, ...filtered];
+
+        // sort newest first
+        updated.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+
+        return updated;
+      });
+    });
+
+    return () => {
+      socket.off("reportCreated");
+      socket.off("reportUpdated");
+    };
+  }, []);
+
   // ✅ Load Leaflet dynamically
   useEffect(() => {
     import("leaflet").then((leafletModule) => setLInstance(leafletModule));
@@ -190,21 +233,26 @@ const OrganizationDashboard = () => {
     setTimeout(() => router.push("/"), 800);
   };
 
-  useEffect(() => {
-    if (!isAuthorized) return;
+  // useEffect(() => {
+  //   if (!isAuthorized) return;
 
-    const interval = setInterval(async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get("http://localhost:8080/api/reports/all", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setReports(res.data);
-      } catch {}
-    }, 20000); // 🔄 every 20s
+  //   const interval = setInterval(async () => {
+  //     try {
+  //       setDataLoading(true);
 
-    return () => clearInterval(interval);
-  }, [isAuthorized]);
+  //       const token = localStorage.getItem("token");
+  //       const res = await axios.get("http://10.103.87.3:8080/api/reports/all", {
+  //         headers: { Authorization: `Bearer ${token}` },
+  //       });
+  //       setReports(res.data);
+  //     } catch {
+  //     } finally {
+  //       setDataLoading(false);
+  //     }
+  //   }, 15000); // 🔄 every 15s
+
+  //   return () => clearInterval(interval);
+  // }, [isAuthorized]);
 
   // ✅ Fetch data
   useEffect(() => {
@@ -219,13 +267,11 @@ const OrganizationDashboard = () => {
       }
 
       try {
+        setDataLoading(true); // ✅ start loading
+
         const [orgRes, reportsRes] = await Promise.all([
-          axios.get("http://localhost:8080/api/auth/me", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          axios.get("http://localhost:8080/api/reports/all", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+          API.get("/auth/me"),
+          API.get("/reports/all"),
         ]);
 
         setOrg(orgRes.data.user);
@@ -238,6 +284,7 @@ const OrganizationDashboard = () => {
         toast.error("⚠️ Failed to load dashboard data.");
         handleLogout();
       } finally {
+        setDataLoading(false); // ✅ stop loading
         setLoading(false);
       }
     };
@@ -249,14 +296,28 @@ const OrganizationDashboard = () => {
   useEffect(() => {
     let filtered = [...reports];
 
-    // 🔥 Disaster filter
+    // ✅ Hide resolved & false unless explicitly selected
+    if (selectedStatus === "all") {
+      filtered = filtered.filter(
+        (r) => r.status !== "resolved" && r.status !== "false",
+      );
+    }
+
+    // ✅ If specific status selected, show only that
+    else {
+      filtered = filtered.filter(
+        (r) => r.status?.toLowerCase() === selectedStatus,
+      );
+    }
+
+    // Disaster filter
     if (selectedDisaster !== "all") {
       filtered = filtered.filter(
         (r) => normalizeDisasterKey(r.classify || "") === selectedDisaster,
       );
     }
 
-    // 🔥 Severity filter
+    // Severity filter
     if (selectedSeverity !== "all") {
       filtered = filtered.filter(
         (r) =>
@@ -264,14 +325,7 @@ const OrganizationDashboard = () => {
       );
     }
 
-    // 🔥 STATUS filter
-    if (selectedStatus !== "all") {
-      filtered = filtered.filter(
-        (r) => r.status?.toLowerCase() === selectedStatus,
-      );
-    }
-
-    // 🔍 Search
+    // Search
     if (searchTerm) {
       filtered = filtered.filter(
         (r) =>
@@ -281,7 +335,7 @@ const OrganizationDashboard = () => {
       );
     }
 
-    // 📅 Date range
+    // Date filters
     if (startDate) {
       filtered = filtered.filter(
         (r) => new Date(r.createdAt) >= new Date(startDate),
@@ -299,7 +353,7 @@ const OrganizationDashboard = () => {
     reports,
     selectedDisaster,
     selectedSeverity,
-    selectedStatus, // ✅ IMPORTANT
+    selectedStatus,
     searchTerm,
     startDate,
     endDate,
@@ -337,18 +391,11 @@ const OrganizationDashboard = () => {
   const handleVerify = async (reportId: string) => {
     try {
       const token = localStorage.getItem("token");
-      await axios.post(
-        `http://localhost:8080/api/reports/${reportId}/verify`,
-        { note: "Verified by authority" },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      await API.post(`/reports/${reportId}/verify`, {
+        note: "Verified by authority",
+      });
 
       toast.success("✅ Report verified");
-      setReports((prev) =>
-        prev.map((r) =>
-          r._id === reportId ? { ...r, status: "verified" } : r,
-        ),
-      );
     } catch {
       toast.error("Failed to verify report");
     }
@@ -357,16 +404,11 @@ const OrganizationDashboard = () => {
   const handleReject = async (reportId: string) => {
     try {
       const token = localStorage.getItem("token");
-      await axios.post(
-        `http://localhost:8080/api/reports/${reportId}/false`,
-        { note: "Invalid or false report" },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      await API.post(`/reports/${reportId}/false`, {
+        note: "Invalid or false report",
+      });
 
       toast.success("❌ Report rejected");
-      setReports((prev) =>
-        prev.map((r) => (r._id === reportId ? { ...r, status: "false" } : r)),
-      );
     } catch {
       toast.error("Failed to reject report");
     }
@@ -375,89 +417,121 @@ const OrganizationDashboard = () => {
   const handleRespond = async (reportId: string) => {
     try {
       const token = localStorage.getItem("token");
-      await axios.post(
-        `http://localhost:8080/api/reports/${reportId}/respond`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      await API.post(`/reports/${reportId}/respond`);
 
       toast.success("🚑 Help dispatched");
-
-      setReports((prev) =>
-        prev.map((r) =>
-          r._id === reportId ? { ...r, status: "responding" } : r,
-        ),
-      );
     } catch {
       toast.error("Failed to dispatch help");
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+
+    return date.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   const handleResolve = async (reportId: string) => {
     try {
-      const token = localStorage.getItem("token");
-      await axios.post(
-        `http://localhost:8080/api/reports/${reportId}/resolve`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      await API.post(`/reports/${reportId}/resolve`);
 
       toast.success("🟢 Report resolved");
-
-      setReports((prev) =>
-        prev.map((r) =>
-          r._id === reportId ? { ...r, status: "resolved" } : r,
-        ),
-      );
     } catch {
       toast.error("Failed to resolve report");
     }
   };
   const mapReports = useMemo(() => {
+    // Hide resolved and false unless specifically selected
+    if (selectedStatus === "resolved") {
+      return filteredReports.filter((r) => r.status === "resolved");
+    }
+
+    if (selectedStatus === "false") {
+      return filteredReports.filter((r) => r.status === "false");
+    }
+
+    // Default → hide resolved & false
     return filteredReports.filter(
       (r) => r.status !== "resolved" && r.status !== "false",
     );
-  }, [filteredReports]);
+  }, [filteredReports, selectedStatus]);
 
   // ✅ Analytics computations
   const analyticsData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    reports.forEach((r) => {
-      const key = (r.classify || "unknown").toLowerCase();
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    const pieData = Object.keys(counts).map((key) => {
-      const normalized = normalizeDisasterKey(key);
+    let pieData: { key: string; name: string; value: number }[] = [];
 
-      return {
-        key: normalized, // internal key
-        name: normalized
+    // ✅ CASE 1: ALL disasters → show disaster distribution
+    if (selectedDisaster === "all") {
+      const counts: Record<string, number> = {};
+
+      filteredReports.forEach((r) => {
+        const key = normalizeDisasterKey(r.classify || "other");
+        counts[key] = (counts[key] || 0) + 1;
+      });
+
+      pieData = Object.keys(counts).map((key) => ({
+        key,
+        name: key
           .split(" ")
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(" "), // display label
+          .join(" "),
         value: counts[key],
-      };
-    });
+      }));
+    }
 
+    // ✅ CASE 2: Specific disaster selected → show severity distribution
+    else {
+      const counts: Record<string, number> = {};
+
+      filteredReports.forEach((r) => {
+        const key = normalizeSeverity(r.severity) ?? "low";
+        counts[key] = (counts[key] || 0) + 1;
+      });
+
+      pieData = Object.keys(counts).map((key) => ({
+        key,
+        name: key.charAt(0).toUpperCase() + key.slice(1),
+        value: counts[key],
+      }));
+    }
+
+    // ✅ Line chart (keep same)
     const lineDataMap: Record<string, number> = {};
+    const last30Days = new Date();
+    last30Days.setDate(last30Days.getDate() - 30);
+
     reports.forEach((r) => {
-      const date = new Date(r.createdAt).toLocaleDateString();
+      const date = new Date(r.createdAt).toISOString().split("T")[0]; // YYYY-MM-DD format
+
       lineDataMap[date] = (lineDataMap[date] || 0) + 1;
     });
-    const lineData = Object.keys(lineDataMap).map((d) => ({
-      date: d,
-      count: lineDataMap[d],
-    }));
+
+    // convert to array and SORT by date
+    const lineData = Object.entries(lineDataMap)
+      .map(([date, count]) => ({
+        date,
+        count,
+      }))
+      .filter((d) => new Date(d.date) >= last30Days)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const mostCommon =
       pieData.sort((a, b) => b.value - a.value)[0]?.name || "N/A";
+
     const latest = reports.length
       ? new Date(
           Math.max(...reports.map((r) => new Date(r.createdAt).getTime())),
         ).toLocaleString()
       : "No Data";
+
     return { pieData, lineData, mostCommon, latest };
-  }, [reports]);
+  }, [reports, filteredReports, selectedDisaster]);
 
   // ✅ Fly to selected report
   useEffect(() => {
@@ -526,11 +600,11 @@ const OrganizationDashboard = () => {
             className="px-3 py-2 bg-gray-700 text-white rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-500 w-full sm:w-[180px]"
           >
             <option value="all">All Disasters</option>
-            {disasterTypes.map((type) => (
-              <option key={type} value={type}>
-                {type.replace("_", " ").toUpperCase()}
-              </option>
-            ))}
+            <option value="damaged buildings">Damaged Buildings</option>
+            <option value="fallen trees">Fallen Trees</option>
+            <option value="flood">Flood</option>
+            <option value="fire">Fire</option>
+            <option value="landslide">Landslide</option>
           </select>
           <select
             value={selectedSeverity}
@@ -642,7 +716,7 @@ const OrganizationDashboard = () => {
         >
           {/* Summary */}
           <div className="bg-gray-700 rounded-lg p-3 space-y-1">
-            <p>Total Reports: {reports.length}</p>
+            <p>Total Reports: {filteredReports.length}</p>
             <p>Most Common: {analyticsData.mostCommon}</p>
             <p>Latest Report: {analyticsData.latest}</p>
           </div>
@@ -690,6 +764,9 @@ const OrganizationDashboard = () => {
                     <p className="text-xs text-gray-300 line-clamp-2">
                       {report.note}
                     </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      📅 Uploaded: {formatDate(report.createdAt)}
+                    </p>
                     {/* 🏛 Government Actions */}
                     {report.status === "pending" && (
                       <div className="flex gap-2 mt-2">
@@ -698,7 +775,7 @@ const OrganizationDashboard = () => {
                             e.stopPropagation();
                             handleVerify(report._id);
                           }}
-                          className="px-2 py-1 bg-green-600 hover:bg-green-700 text-xs rounded"
+                          className="px-2 py-1 cursor-pointer bg-green-600 hover:bg-green-700 text-xs rounded"
                         >
                           Verify
                         </button>
@@ -707,7 +784,7 @@ const OrganizationDashboard = () => {
                             e.stopPropagation();
                             handleReject(report._id);
                           }}
-                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-xs rounded"
+                          className="px-2 py-1 cursor-pointer  bg-red-600 hover:bg-red-700 text-xs rounded"
                         >
                           Reject
                         </button>
@@ -720,7 +797,7 @@ const OrganizationDashboard = () => {
                           e.stopPropagation();
                           handleRespond(report._id);
                         }}
-                        className="mt-2 px-2 py-1 bg-orange-600 hover:bg-orange-700 text-xs rounded"
+                        className="mt-2 px-2 py-1 cursor-pointer  bg-orange-600 hover:bg-orange-700 text-xs rounded"
                       >
                         Dispatch Help
                       </button>
@@ -732,7 +809,7 @@ const OrganizationDashboard = () => {
                           e.stopPropagation();
                           handleResolve(report._id);
                         }}
-                        className="mt-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
+                        className="mt-2 px-2 py-1 cursor-pointer  bg-blue-600 hover:bg-blue-700 text-xs rounded"
                       >
                         Mark Resolved
                       </button>
@@ -778,6 +855,9 @@ const OrganizationDashboard = () => {
                       <p className="text-xs text-gray-300 line-clamp-2">
                         {report.note}
                       </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        📅 Uploaded: {formatDate(report.createdAt)}
+                      </p>
                       {/* 🏛 Government Actions */}
                       {report.status === "pending" && (
                         <div className="flex gap-2 mt-2">
@@ -786,7 +866,7 @@ const OrganizationDashboard = () => {
                               e.stopPropagation();
                               handleVerify(report._id);
                             }}
-                            className="px-2 py-1 bg-green-600 hover:bg-green-700 text-xs rounded"
+                            className="px-2 py-1 cursor-pointer  bg-green-600 hover:bg-green-700 text-xs rounded"
                           >
                             Verify
                           </button>
@@ -795,7 +875,7 @@ const OrganizationDashboard = () => {
                               e.stopPropagation();
                               handleReject(report._id);
                             }}
-                            className="px-2 py-1 bg-red-600 hover:bg-red-700 text-xs rounded"
+                            className="px-2 py-1 cursor-pointer  bg-red-600 hover:bg-red-700 text-xs rounded"
                           >
                             Reject
                           </button>
@@ -808,7 +888,7 @@ const OrganizationDashboard = () => {
                             e.stopPropagation();
                             handleRespond(report._id);
                           }}
-                          className="mt-2 px-2 py-1 bg-orange-600 hover:bg-orange-700 text-xs rounded"
+                          className="mt-2 px-2 py-1 cursor-pointer  bg-orange-600 hover:bg-orange-700 text-xs rounded"
                         >
                           Dispatch Help
                         </button>
@@ -820,7 +900,7 @@ const OrganizationDashboard = () => {
                             e.stopPropagation();
                             handleResolve(report._id);
                           }}
-                          className="mt-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-xs rounded"
+                          className="mt-2 px-2 py-1 cursor-pointer  bg-blue-600 hover:bg-blue-700 text-xs rounded"
                         >
                           Mark Resolved
                         </button>
@@ -835,8 +915,11 @@ const OrganizationDashboard = () => {
           {/* Charts */}
           <div className="bg-gray-700 rounded-lg p-3 mt-4">
             <h3 className="text-sm font-semibold mb-2 text-center">
-              Disaster Type Distribution
+              {selectedDisaster === "all"
+                ? "Disaster Type Distribution"
+                : "Severity Distribution"}
             </h3>
+
             <ResponsiveContainer width="100%" height={210}>
               <PieChart>
                 <Pie
@@ -849,7 +932,12 @@ const OrganizationDashboard = () => {
                   {analyticsData.pieData.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill={DISASTER_COLORS[entry.key] ?? DISASTER_COLORS.other}
+                      fill={
+                        selectedDisaster === "all"
+                          ? (DISASTER_COLORS[entry.key] ??
+                            DISASTER_COLORS.other)
+                          : (SEVERITY_COLORS[entry.key] ?? SEVERITY_COLORS.low)
+                      }
                     />
                   ))}
                 </Pie>
@@ -864,7 +952,7 @@ const OrganizationDashboard = () => {
 
           <div className="bg-gray-700 rounded-lg p-3 mt-4 mb-6">
             <h3 className="text-sm font-semibold mb-2 text-center">
-              Reports Over Time
+              Reports Over Time ( Last 30 Days)
             </h3>
             <ResponsiveContainer width="100%" height={120}>
               <LineChart data={analyticsData.lineData}>

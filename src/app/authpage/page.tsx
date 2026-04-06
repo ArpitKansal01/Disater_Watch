@@ -61,7 +61,10 @@ const Loginpage = () => {
   }, []);
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
+    <div
+      className="relative min-h-screen flex items-center justify-center overflow-hidden"
+      suppressHydrationWarning
+    >
       {/* ✅ Fancy animated cursors only for larger screens */}
       {isLaptop && enableCursor && (
         <>
@@ -123,6 +126,12 @@ const Loginpage = () => {
           >
             {isLogin ? "Sign up" : "Log in"}
           </button>
+        </p>
+        <p className="text-center text-gray-400">
+          Our Mail:{" "}
+          <span className="text-white font-semibold">
+            disasterwatch.official@gmail.com
+          </span>
         </p>
       </div>
     </div>

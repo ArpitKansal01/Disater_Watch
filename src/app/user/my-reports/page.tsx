@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import API from "../../lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { socket } from "../../components/socket";
 
 type Report = {
   _id: string;
@@ -50,27 +51,15 @@ const MyReportsPage = () => {
         return;
       }
 
-      const res = await axios.get(
-        "http://192.168.0.104:8080/api/reports/my-reports",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
+      const res = await API.get("/reports/my-reports");
 
       const data: Report[] = res.data;
 
-      // 🔔 Detect status changes
+      setReports(data);
+
       data.forEach((report) => {
-        const prevStatus = previousStatuses.current[report._id];
-        if (prevStatus && prevStatus !== report.status) {
-          toast.success(`📢 Report update: ${STATUS_LABEL[report.status]}`);
-        }
         previousStatuses.current[report._id] = report.status;
       });
-
-      setReports(data);
     } catch (error) {
       toast.error("❌ Failed to fetch your reports");
     } finally {
@@ -78,15 +67,54 @@ const MyReportsPage = () => {
     }
   };
 
-  // 🔄 Initial load + polling every 15 seconds
+  const socketInitialized = useRef(false);
+
   useEffect(() => {
+    // prevent duplicate listeners
+    if (socketInitialized.current) return;
+    socketInitialized.current = true;
+
     fetchReports();
 
-    const interval = setInterval(() => {
-      fetchReports();
-    }, 15000);
+    socket.on("connect", () => {});
 
-    return () => clearInterval(interval);
+    socket.on("reportUpdated", (updatedReport: Report) => {
+      setReports((prev) => {
+        const exists = prev.find((r) => r._id === updatedReport._id);
+        if (!exists) return prev;
+
+        const previousStatus = previousStatuses.current[updatedReport._id];
+
+        // show toast ONLY if status actually changed from stored value
+        if (previousStatus && previousStatus !== updatedReport.status) {
+          toast.success(
+            `📢 Report update: ${STATUS_LABEL[updatedReport.status]}`,
+          );
+        }
+
+        // update stored status
+        previousStatuses.current[updatedReport._id] = updatedReport.status;
+
+        return prev.map((r) =>
+          r._id === updatedReport._id ? updatedReport : r,
+        );
+      });
+    });
+
+    socket.on("reportCreated", (newReport: Report) => {
+      setReports((prev) => {
+        const exists = prev.some((r) => r._id === newReport._id);
+        if (exists) return prev;
+
+        return [newReport, ...prev];
+      });
+    });
+
+    return () => {
+      socket.off("connect");
+      socket.off("reportUpdated");
+      socket.off("reportCreated");
+    };
   }, []);
 
   // ⏳ Loading state
@@ -100,7 +128,7 @@ const MyReportsPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="relative flex items-center mb-6">
+      <div className="relative flex items-center  mb-6">
         {/* Go Back button (left) */}
         <button
           onClick={() => router.back()}
@@ -110,7 +138,7 @@ const MyReportsPage = () => {
         </button>
 
         {/* Centered heading */}
-        <h1 className="absolute left-1/2 -translate-x-1/2 text-2xl font-bold">
+        <h1 className="absolute max-md:right-2 max-md:max-w-45 max-md:text-center md:left-1/2 md:-translate-x-1/2 text-2xl font-bold">
           📋 My Disaster Reports
         </h1>
       </div>

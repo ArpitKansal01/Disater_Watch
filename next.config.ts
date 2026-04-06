@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const path = require("path");
+
 const nextConfig = {
   images: {
     remotePatterns: [
@@ -7,6 +9,9 @@ const nextConfig = {
         hostname: "res.cloudinary.com",
       },
     ],
+  },
+  turbopack: {
+    root: path.join(__dirname, ".."),
   },
 };
 

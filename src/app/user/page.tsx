@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import SpotlightCard from "../ui/SpotlightCard";
+import API from "../lib/api";
 import axios from "axios";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -9,9 +10,6 @@ import dynamic from "next/dynamic";
 import ReportForm from "./ReportForm";
 
 const TargetCursor = dynamic(() => import("../ui/TargetCursor"), {
-  ssr: false,
-});
-const SplashCursor = dynamic(() => import("../ui/SplashCursor"), {
   ssr: false,
 });
 
@@ -175,21 +173,15 @@ const UserDashboard: React.FC = () => {
       formData.append("file", selectedFile);
       const processedNote = await summarizeAndTranslateNote(userNote);
       formData.append("note", processedNote);
-      console.log(processedNote);
       formData.append("location", locationData);
 
       const token = localStorage.getItem("token");
 
-      const response = await axios.post(
-        "http://192.168.0.104:8080/api/severity/predict",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${token}`, // 🔥 REQUIRED
-          },
+      const response = await API.post("/severity/predict", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
         },
-      );
+      });
 
       const { message, severity, saved, status, info } = response.data;
       if (saved && info) {
@@ -263,10 +255,9 @@ const UserDashboard: React.FC = () => {
     if (!note.trim()) return "No note added";
 
     try {
-      const res = await axios.post(
-        "http://192.168.0.104:8080/api/ai/summarize-translate",
-        { text: note },
-      );
+      const res = await API.post("/ai/summarize-translate", {
+        text: note,
+      });
 
       return res.data.result; // summarized + translated English text
     } catch (err) {
@@ -288,7 +279,7 @@ const UserDashboard: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row lg:gap-10 items-center justify-center min-h-screen p-4 font-sans relative">
+    <div className="flex flex-col lg:flex-row lg:gap-10 text-white bg-black items-center justify-center min-h-screen p-4 font-sans relative">
       {/* 🌀 Global Loading Overlay */}
       {(status === "uploading" ||
         status === "checking" ||
@@ -306,9 +297,6 @@ const UserDashboard: React.FC = () => {
       {isLaptop && enableCursor && cursorActive && (
         <>
           <TargetCursor spinDuration={2} hideDefaultCursor />
-          <div className="absolute inset-0 -z-10">
-            <SplashCursor />
-          </div>
         </>
       )}
 

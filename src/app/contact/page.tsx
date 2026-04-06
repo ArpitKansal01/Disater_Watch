@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation"; // ✅ import router
 import TargetCursor from "../ui/TargetCursor";
 import DotGrid from "../ui/DotGrid";
-import axios from "axios";
+import API from "../lib/api";
 
 const ContactPage = () => {
   const router = useRouter(); // ✅ initialize router
@@ -62,9 +62,12 @@ const ContactPage = () => {
     if (registrationFile) formData.append("registrationFile", registrationFile);
 
     try {
-      await axios.post("http://localhost:8080/api/contact", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      await API.post("/contact", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
       });
+
       setSubmitted(true);
     } catch (err) {
       console.error(err);
