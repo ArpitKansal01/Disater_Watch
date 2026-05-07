@@ -2,6 +2,15 @@ import { openDB, IDBPDatabase } from "idb";
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
+// ✅ Define report type
+export interface OfflineReport {
+  id?: number;
+  image: string;
+  note: string;
+  location: string;
+  createdAt: string;
+}
+
 // ✅ Lazy + client-safe DB init
 const getDB = async () => {
   if (typeof window === "undefined") {
@@ -25,7 +34,9 @@ const getDB = async () => {
 };
 
 // ✅ Save report
-export const saveReportOffline = async (report: any) => {
+export const saveReportOffline = async (
+  report: OfflineReport
+) => {
   const db = await getDB();
   if (!db) return;
 

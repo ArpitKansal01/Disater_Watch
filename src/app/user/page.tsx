@@ -52,7 +52,6 @@ const UserDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
 
     const checkAndSync = async () => {
       // 📴 Only run when offline
@@ -72,7 +71,7 @@ const UserDashboard: React.FC = () => {
     };
 
     // check every 10 seconds
-    interval = setInterval(checkAndSync, 10000);
+    const interval = setInterval(checkAndSync, 10000);
 
     return () => clearInterval(interval);
   }, []);
@@ -159,7 +158,6 @@ const UserDashboard: React.FC = () => {
   }, [router]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
 
     const updateLocation = () => {
       if (!navigator.geolocation || !navigator.onLine) return;
@@ -193,7 +191,7 @@ const UserDashboard: React.FC = () => {
     updateLocation();
 
     // Run every 2 minutes (adjust if needed)
-    interval = setInterval(updateLocation, 2 * 60 * 1000);
+    const interval = setInterval(updateLocation, 2 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);
@@ -303,10 +301,17 @@ const UserDashboard: React.FC = () => {
           });
 
           console.log("✅ Uploaded:", response.data);
-        } catch (err: any) {
-          console.error("❌ Sync error:", err?.response?.data || err.message);
-          continue; // ✅ DO NOT STOP
-        }
+        } catch (err: unknown) {
+  if (axios.isAxiosError(err)) {
+    console.error("❌ Sync error:", err.response?.data || err.message);
+  } else if (err instanceof Error) {
+    console.error("❌ Sync error:", err.message);
+  } else {
+    console.error("❌ Unknown sync error");
+  }
+
+  continue;
+}
       }
 
       await clearOfflineReports();
