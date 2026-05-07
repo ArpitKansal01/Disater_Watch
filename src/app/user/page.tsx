@@ -8,6 +8,9 @@ import { useRouter } from "next/navigation";
 import Loader from "../ui/Loader";
 import dynamic from "next/dynamic";
 import ReportForm from "./ReportForm";
+import { saveReportOffline } from "../lib/offlineDB";
+import { fileToBase64 } from "../utils/fileToBase64";
+import { getOfflineReports, clearOfflineReports } from "../lib/offlineDB";
 
 const TargetCursor = dynamic(() => import("../ui/TargetCursor"), {
   ssr: false,
@@ -34,6 +37,61 @@ const UserDashboard: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [enableCursor, setEnableCursor] = useState(false);
   const [cursorActive, setCursorActive] = useState(true);
+  const [isOnline, setIsOnline] = useState(true);
+
+  const checkServerAvailable = async () => {
+    try {
+      const res = await fetch("http://192.168.4.2:5000", {
+        method: "GET",
+      });
+
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    const checkAndSync = async () => {
+      // 📴 Only run when offline
+      if (navigator.onLine) return;
+
+      const reports = await getOfflineReports();
+      if (!reports.length) return;
+
+      console.log("🔍 Checking local server availability...");
+
+      const isServerUp = await checkServerAvailable();
+      if (isServerUp) {
+        console.log("🟢 Local server reachable! Syncing...");
+      } else {
+        console.log("🔴 Server still unreachable");
+      }
+    };
+
+    // check every 10 seconds
+    interval = setInterval(checkAndSync, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const updateStatus = () => {
+      setIsOnline(navigator.onLine);
+    };
+
+    updateStatus(); // initial check
+
+    window.addEventListener("online", updateStatus);
+    window.addEventListener("offline", updateStatus);
+
+    return () => {
+      window.removeEventListener("online", updateStatus);
+      window.removeEventListener("offline", updateStatus);
+    };
+  }, []);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
@@ -100,6 +158,166 @@ const UserDashboard: React.FC = () => {
     setLoading(false);
   }, [router]);
 
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    const updateLocation = () => {
+      if (!navigator.geolocation || !navigator.onLine) return;
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+
+          const locationData = {
+            lat: latitude,
+            lng: longitude,
+            timestamp: new Date().toISOString(),
+          };
+
+          localStorage.setItem("lastLocation", JSON.stringify(locationData));
+
+          console.log("📍 Location updated:", locationData);
+        },
+        (err) => {
+          console.warn("Location error:", err.message);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        },
+      );
+    };
+
+    // Run immediately
+    updateLocation();
+
+    // Run every 2 minutes (adjust if needed)
+    interval = setInterval(updateLocation, 2 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+
+        const locationData = {
+          lat: latitude,
+          lng: longitude,
+          timestamp: new Date().toISOString(),
+        };
+
+        localStorage.setItem("lastLocation", JSON.stringify(locationData));
+
+        console.log("📍 Live location:", locationData);
+      },
+      (err) => console.warn("Location error:", err.message),
+      {
+        enableHighAccuracy: true,
+        maximumAge: 10000,
+        timeout: 10000,
+      },
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+  useEffect(() => {
+    const syncReports = async () => {
+      const reports = await getOfflineReports();
+      if (!reports.length) return;
+
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        toast.error("Session expired. Please login again.");
+        return;
+      }
+
+      toast.info(`🔄 Syncing ${reports.length} reports...`);
+
+      for (const report of reports) {
+        try {
+          const res = await fetch(report.image);
+          const blob = await res.blob();
+
+          const file = new File([blob], "report.jpg", {
+            type: blob.type,
+          });
+
+          let processedNote = report.note;
+
+          try {
+            const aiRes = await API.post("/ai/summarize-translate", {
+              text: report.note,
+            });
+            processedNote = aiRes.data.result;
+          } catch (err) {
+            console.warn("AI failed, using raw note");
+          }
+
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("note", processedNote);
+          let locationData = "Location not available";
+
+          if (navigator.geolocation) {
+            try {
+              locationData = await new Promise<string>((resolve) => {
+                navigator.geolocation.getCurrentPosition(
+                  async (position) => {
+                    const { latitude, longitude } = position.coords;
+
+                    const locationName = await getLocationName(
+                      latitude,
+                      longitude,
+                    );
+
+                    // extract generic region (city/state)
+                    const genericLocation = locationName
+                      .split(",")
+                      .slice(-3)
+                      .join(",")
+                      .trim();
+
+                    resolve(
+                      `${genericLocation} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
+                    );
+                  },
+                  () => resolve("Location permission denied"),
+                );
+              });
+            } catch {
+              locationData = "Location unavailable";
+            }
+          }
+          formData.append("location", locationData);
+
+          const response = await API.post("/severity/predict", formData, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          console.log("✅ Uploaded:", response.data);
+        } catch (err: any) {
+          console.error("❌ Sync error:", err?.response?.data || err.message);
+          continue; // ✅ DO NOT STOP
+        }
+      }
+
+      await clearOfflineReports();
+      toast.success("✅ All offline reports synced!");
+    };
+
+    window.addEventListener("online", syncReports);
+
+    return () => window.removeEventListener("online", syncReports);
+  }, []);
+
   // ✅ Logout Function
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -135,9 +353,35 @@ const UserDashboard: React.FC = () => {
 
   const processFile = async (selectedFile: File) => {
     setMessages([]);
+
+    // 📴 CHECK FIRST (VERY IMPORTANT)
+    if (!navigator.onLine) {
+      setStatus("uploading"); // optional (for UX)
+
+      const base64Image = await fileToBase64(selectedFile);
+      setImageUrl(base64Image);
+      const storedLocation = localStorage.getItem("lastLocation");
+      let locationData = "Location unavailable";
+      if (storedLocation) {
+        const parsed = JSON.parse(storedLocation);
+        locationData = `${parsed.lat}, ${parsed.lng}`;
+      }
+      await saveReportOffline({
+        image: base64Image,
+        note: userNote,
+        location: locationData,
+        createdAt: new Date().toISOString(),
+      });
+
+      toast.info("📦 Saved offline. Will sync when online.");
+
+      setStatus("success"); // ✅ stops loader
+      return;
+    }
+
+    // 🌐 ONLY ONLINE BELOW
     setStatus("uploading");
     setImageUrl(URL.createObjectURL(selectedFile));
-
     try {
       let locationData = "Location not available";
 
@@ -169,17 +413,25 @@ const UserDashboard: React.FC = () => {
         }
       }
 
+      let processedNote = userNote;
+
+      const token = localStorage.getItem("token");
+      try {
+        const res = await API.post("/ai/summarize-translate", {
+          text: userNote,
+        });
+        processedNote = res.data.result;
+      } catch {
+        toast.error("⚠️ Failed to process note. Using original note.");
+      }
       const formData = new FormData();
       formData.append("file", selectedFile);
-      const processedNote = await summarizeAndTranslateNote(userNote);
       formData.append("note", processedNote);
       formData.append("location", locationData);
 
-      const token = localStorage.getItem("token");
-
       const response = await API.post("/severity/predict", formData, {
         headers: {
-          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -251,21 +503,6 @@ const UserDashboard: React.FC = () => {
     }
   };
 
-  const summarizeAndTranslateNote = async (note: string): Promise<string> => {
-    if (!note.trim()) return "No note added";
-
-    try {
-      const res = await API.post("/ai/summarize-translate", {
-        text: note,
-      });
-
-      return res.data.result; // summarized + translated English text
-    } catch (err) {
-      toast.error("⚠️ Failed to process note. Using original note.");
-      return note; // fallback (important)
-    }
-  };
-
   // ✅ Loading State
   if (loading || !isAuthorized) {
     return (
@@ -306,7 +543,17 @@ const UserDashboard: React.FC = () => {
       >
         📋 My Reports
       </button>
-
+      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50">
+        <div
+          className={`px-4 py-2 rounded-full text-sm font-semibold shadow-lg ${
+            isOnline
+              ? "bg-green-600 text-white"
+              : "bg-red-600 text-white animate-pulse"
+          }`}
+        >
+          {isOnline ? "🟢 You are Online" : "🔴 You are Offline"}
+        </div>
+      </div>
       {/* ✅ Logout Button */}
       <button
         onClick={handleLogout}

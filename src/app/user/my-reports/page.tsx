@@ -70,52 +70,44 @@ const MyReportsPage = () => {
   const socketInitialized = useRef(false);
 
   useEffect(() => {
-    // prevent duplicate listeners
-    if (socketInitialized.current) return;
-    socketInitialized.current = true;
+  fetchReports();
 
-    fetchReports();
+  const handleReportUpdate = (updatedReport: Report) => {
+    console.log("📢 SOCKET UPDATE:", updatedReport);
 
-    socket.on("connect", () => {});
+    setReports((prev) => {
+      const exists = prev.find((r) => r._id === updatedReport._id);
+      if (!exists) return prev;
 
-    socket.on("reportUpdated", (updatedReport: Report) => {
-      setReports((prev) => {
-        const exists = prev.find((r) => r._id === updatedReport._id);
-        if (!exists) return prev;
+      const previousStatus =
+        previousStatuses.current[updatedReport._id];
 
-        const previousStatus = previousStatuses.current[updatedReport._id];
-
-        // show toast ONLY if status actually changed from stored value
-        if (previousStatus && previousStatus !== updatedReport.status) {
-          toast.success(
-            `📢 Report update: ${STATUS_LABEL[updatedReport.status]}`,
-          );
-        }
-
-        // update stored status
-        previousStatuses.current[updatedReport._id] = updatedReport.status;
-
-        return prev.map((r) =>
-          r._id === updatedReport._id ? updatedReport : r,
+      if (
+        previousStatus &&
+        previousStatus !== updatedReport.status
+      ) {
+        toast.success(
+          `📢 Report update: ${STATUS_LABEL[updatedReport.status]}`
         );
-      });
+      }
+
+      previousStatuses.current[updatedReport._id] =
+        updatedReport.status;
+
+      return prev.map((r) =>
+        r._id === updatedReport._id
+          ? { ...r, ...updatedReport }
+          : r
+      );
     });
+  };
 
-    socket.on("reportCreated", (newReport: Report) => {
-      setReports((prev) => {
-        const exists = prev.some((r) => r._id === newReport._id);
-        if (exists) return prev;
+  socket.on("reportUpdated", handleReportUpdate);
 
-        return [newReport, ...prev];
-      });
-    });
-
-    return () => {
-      socket.off("connect");
-      socket.off("reportUpdated");
-      socket.off("reportCreated");
-    };
-  }, []);
+  return () => {
+    socket.off("reportUpdated", handleReportUpdate);
+  };
+}, []);
 
   // ⏳ Loading state
   if (loading) {

@@ -233,27 +233,7 @@ const OrganizationDashboard = () => {
     setTimeout(() => router.push("/"), 800);
   };
 
-  // useEffect(() => {
-  //   if (!isAuthorized) return;
-
-  //   const interval = setInterval(async () => {
-  //     try {
-  //       setDataLoading(true);
-
-  //       const token = localStorage.getItem("token");
-  //       const res = await axios.get("http://10.103.87.3:8080/api/reports/all", {
-  //         headers: { Authorization: `Bearer ${token}` },
-  //       });
-  //       setReports(res.data);
-  //     } catch {
-  //     } finally {
-  //       setDataLoading(false);
-  //     }
-  //   }, 15000); // 🔄 every 15s
-
-  //   return () => clearInterval(interval);
-  // }, [isAuthorized]);
-
+  
   // ✅ Fetch data
   useEffect(() => {
     const fetchData = async () => {
