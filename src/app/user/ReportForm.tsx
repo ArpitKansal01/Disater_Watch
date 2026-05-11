@@ -95,7 +95,7 @@ const ReportForm: React.FC<ReportFormProps> = ({
                 `}
             >
               <p className="text-white font-semibold text-sm md:text-base">
-                📸 Drag & drop an image here
+                📸 Upload an image here
               </p>
               <p className="text-gray-400 text-xs mt-1">or click to upload</p>
 

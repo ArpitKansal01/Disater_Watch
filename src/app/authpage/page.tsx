@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Spiral } from "ldrs/react";
-import "ldrs/react/Spiral.css";
 import AuthHeader from "./AuthHeader";
 import AuthForm from "./AuthForm";
 import AuthOtp from "./AuthOtp";
@@ -62,14 +61,14 @@ const Loginpage = () => {
 
   return (
     <div
-      className="relative min-h-screen flex items-center justify-center overflow-hidden"
+      className="relative min-h-screen bg-black flex items-center justify-center overflow-hidden"
       suppressHydrationWarning
     >
       {/* ✅ Fancy animated cursors only for larger screens */}
       {isLaptop && enableCursor && (
         <>
           <TargetCursor spinDuration={2} hideDefaultCursor />
-          <div className="inset-0 -z-10">
+          <div className="inset-0 z-9">
             <SplashCursor />
           </div>
         </>
