@@ -132,6 +132,9 @@ const Loginpage = () => {
             disasterwatch.official@gmail.com
           </span>
         </p>
+        <p className="text-center text-gray-400">
+          Project Created By Arpit Kansal
+        </p>
       </div>
     </div>
   );
